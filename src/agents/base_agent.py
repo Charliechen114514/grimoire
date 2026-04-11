@@ -1,4 +1,5 @@
 """Agent 基类 — prompt 加载 / API 调用 / 重试 / Pydantic 验证"""
+import asyncio
 import json
 import logging
 import re
@@ -25,6 +26,18 @@ T = TypeVar("T", bound=BaseModel)
 
 _BASE_DELAY = 2.0  # 指数退避基础延迟（秒）
 
+# 全局 API 并发信号量，在首次使用时初始化
+_api_semaphore: asyncio.Semaphore | None = None
+
+
+def get_api_semaphore() -> asyncio.Semaphore:
+    """获取或初始化全局 API 并发信号量。"""
+    global _api_semaphore
+    if _api_semaphore is None:
+        from src.config import MAX_CONCURRENT_CHAPTERS
+        _api_semaphore = asyncio.Semaphore(MAX_CONCURRENT_CHAPTERS * 2)
+    return _api_semaphore
+
 
 class BaseAgent(ABC):
     """所有 Agent 的基类，提供 prompt 加载、API 调用、JSON 解析能力。"""
@@ -32,6 +45,7 @@ class BaseAgent(ABC):
     def __init__(self, agent_name: str) -> None:
         self.agent_name = agent_name
         self._client: anthropic.Anthropic | None = None
+        self._async_client: anthropic.AsyncAnthropic | None = None
 
     @property
     def client(self) -> anthropic.Anthropic:
@@ -41,6 +55,15 @@ class BaseAgent(ABC):
                 kwargs["base_url"] = ANTHROPIC_BASE_URL
             self._client = anthropic.Anthropic(**kwargs)
         return self._client
+
+    @property
+    def async_client(self) -> anthropic.AsyncAnthropic:
+        if self._async_client is None:
+            kwargs: dict = {"api_key": ANTHROPIC_API_KEY}
+            if ANTHROPIC_BASE_URL:
+                kwargs["base_url"] = ANTHROPIC_BASE_URL
+            self._async_client = anthropic.AsyncAnthropic(**kwargs)
+        return self._async_client
 
     def load_prompt(self, prompt_type: str) -> str:
         """
@@ -114,6 +137,59 @@ class BaseAgent(ABC):
                     raise RuntimeError(
                         f"[{self.agent_name}] Failed after {MAX_RETRIES} attempts: {e}"
                     ) from e
+
+        raise RuntimeError(f"[{self.agent_name}] Unreachable")  # pragma: no cover
+
+    async def async_call_api(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int | None = None,
+    ) -> str:
+        """
+        异步调用 Anthropic API，带全局并发信号量和指数退避重试。
+
+        Args/Returns/Raises: 同 call_api
+        """
+        tokens = max_tokens or MAX_TOKENS
+        sem = get_api_semaphore()
+
+        for attempt in range(MAX_RETRIES):
+            async with sem:
+                try:
+                    resp = await self.async_client.messages.create(
+                        model=MODEL_NAME,
+                        max_tokens=tokens,
+                        system=system,
+                        messages=[{"role": "user", "content": user}],
+                    )
+                    return resp.content[0].text
+
+                except anthropic.APIError as e:
+                    delay = _BASE_DELAY * (2**attempt)
+                    logger.warning(
+                        "[%s] API error (attempt %d/%d): %s — retry in %.1fs",
+                        self.agent_name, attempt + 1, MAX_RETRIES, e, delay,
+                    )
+                    if attempt < MAX_RETRIES - 1:
+                        await asyncio.sleep(delay)
+                    else:
+                        raise RuntimeError(
+                            f"[{self.agent_name}] API failed after {MAX_RETRIES} attempts: {e}"
+                        ) from e
+
+                except Exception as e:
+                    delay = _BASE_DELAY * (2**attempt)
+                    logger.error(
+                        "[%s] Unexpected error (attempt %d/%d): %s",
+                        self.agent_name, attempt + 1, MAX_RETRIES, e,
+                    )
+                    if attempt < MAX_RETRIES - 1:
+                        await asyncio.sleep(delay)
+                    else:
+                        raise RuntimeError(
+                            f"[{self.agent_name}] Failed after {MAX_RETRIES} attempts: {e}"
+                        ) from e
 
         raise RuntimeError(f"[{self.agent_name}] Unreachable")  # pragma: no cover
 

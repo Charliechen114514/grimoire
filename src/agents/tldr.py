@@ -34,3 +34,17 @@ class TLDRAgent(BaseAgent):
         raw = self.call_api(system=system, user=user, max_tokens=2048)
         logger.info("TLDRAgent produced %d chars", len(raw))
         return raw
+
+    async def async_run(self, writing_output: str, chapter_idx: int) -> str:
+        """异步版本：提炼教程核心要点。"""
+        system = self.load_prompt("system")
+        user_template = self.load_prompt("user")
+
+        user = user_template.format(
+            chapter_idx=chapter_idx,
+            writing_output=writing_output[:30000],
+        )
+
+        raw = await self.async_call_api(system=system, user=user, max_tokens=2048)
+        logger.info("TLDRAgent produced %d chars", len(raw))
+        return raw

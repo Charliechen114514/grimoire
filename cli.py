@@ -47,6 +47,7 @@ def _cmd_batch(args: argparse.Namespace) -> None:
             book_slug=args.book_slug,
             resume=not args.no_resume,
             verbose_mode=getattr(args, "verbose_mode", False),
+            max_workers=getattr(args, "workers", 1),
         )
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run to resume.")
@@ -119,6 +120,7 @@ def _cmd_all(args: argparse.Namespace) -> None:
             book_slug=slug,
             resume=not args.no_resume,
             verbose_mode=getattr(args, "verbose_mode", False),
+            max_workers=getattr(args, "workers", 1),
         )
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run with 'batch' to resume.")
@@ -163,6 +165,10 @@ def main() -> None:
         "--verbose-mode", action="store_true",
         help="Verbose mode: section-by-section faithful rewrite",
     )
+    p_batch.add_argument(
+        "--workers", "-w", type=int, default=1,
+        help="Max concurrent chapters (default: 1 = sequential)",
+    )
 
     # ── review ──
     p_review = sub.add_parser("review", help="Review generated tutorials")
@@ -183,6 +189,10 @@ def main() -> None:
     p_all.add_argument(
         "--verbose-mode", action="store_true",
         help="Verbose mode: section-by-section faithful rewrite",
+    )
+    p_all.add_argument(
+        "--workers", "-w", type=int, default=1,
+        help="Max concurrent chapters (default: 1 = sequential)",
     )
 
     args = parser.parse_args()

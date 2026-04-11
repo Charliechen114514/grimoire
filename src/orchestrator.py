@@ -1,4 +1,5 @@
 """Orchestrator — 串联 4 个 Agent 处理单个章节"""
+import asyncio
 import json
 import logging
 import os
@@ -160,6 +161,186 @@ def _run_with_retry(func: callable, agent_name: str) -> Any:
             else:
                 logger.error("[%s] All %d attempts failed", agent_name, _MAX_RETRIES + 1)
     raise RuntimeError(f"[{agent_name}] Failed after {_MAX_RETRIES + 1} attempts: {last_error}")
+
+
+async def _async_run_with_retry(func: callable, agent_name: str) -> Any:
+    """异步运行 Agent 函数，Pydantic 验证失败时重试。"""
+    last_error: Exception | None = None
+    for attempt in range(_MAX_RETRIES + 1):
+        try:
+            return await func()
+        except (ValueError, Exception) as e:
+            last_error = e
+            if attempt < _MAX_RETRIES:
+                logger.warning(
+                    "[%s] Attempt %d failed: %s — retrying",
+                    agent_name, attempt + 1, e,
+                )
+            else:
+                logger.error("[%s] All %d attempts failed", agent_name, _MAX_RETRIES + 1)
+    raise RuntimeError(f"[{agent_name}] Failed after {_MAX_RETRIES + 1} attempts: {last_error}")
+
+
+async def async_run_chapter_pipeline(
+    chapter_text: str,
+    chapter_idx: int,
+    book_slug: str,
+    glossary: dict[str, Any] | None = None,
+    verbose_mode: bool = False,
+    toc: list[tuple[int, str, int]] | None = None,
+) -> ChapterResult:
+    """
+    异步串联 4 个 Agent 处理单个章节。
+    Writing + Exercise 在 Concept 完成后并行执行。
+
+    Args/Returns: 同 run_chapter_pipeline
+    """
+    mode_label = "VERBOSE" if verbose_mode else "STANDARD"
+    logger.info("=== Async pipeline started [%s]: %s Ch.%d ===", mode_label, book_slug, chapter_idx)
+
+    # Step 1: ConceptAgent
+    concept_agent = ConceptAgent()
+    concepts_result = await _async_run_with_retry(
+        lambda: concept_agent.async_run(
+            chapter_text=chapter_text,
+            glossary=glossary,
+            truncate=not verbose_mode,
+        ),
+        agent_name="ConceptAgent",
+    )
+    concepts_json = concepts_result.model_dump_json(indent=2)
+    logger.info("Concepts: %d extracted", len(concepts_result.concepts))
+
+    # Step 2+3: Writing + Exercise 并行
+    writing_agent = WritingAgent()
+    exercise_agent = ExerciseAgent()
+
+    if verbose_mode:
+        # Verbose: 写作保持串行（previous_summary 依赖），但与 Exercise 并行
+        verbose_tuple, exercise_result = await asyncio.gather(
+            _async_run_verbose_writing(
+                writing_agent=writing_agent,
+                chapter_text=chapter_text,
+                chapter_idx=chapter_idx,
+                concepts=concepts_json,
+                toc=toc,
+            ),
+            _async_run_with_retry(
+                lambda: exercise_agent.async_run(
+                    chapter_text=chapter_text,
+                    chapter_idx=chapter_idx,
+                    concepts=concepts_json,
+                ),
+                agent_name="ExerciseAgent",
+            ),
+        )
+        section_results_list, sections = verbose_tuple
+        writing_result = _merge_verbose_sections(section_results_list)
+    else:
+        # Standard: Writing + Exercise 完全并行
+        writing_result, exercise_result = await asyncio.gather(
+            _async_run_with_retry(
+                lambda: writing_agent.async_run(
+                    chapter_text=chapter_text,
+                    chapter_idx=chapter_idx,
+                    concepts=concepts_json,
+                ),
+                agent_name="WritingAgent",
+            ),
+            _async_run_with_retry(
+                lambda: exercise_agent.async_run(
+                    chapter_text=chapter_text,
+                    chapter_idx=chapter_idx,
+                    concepts=concepts_json,
+                ),
+                agent_name="ExerciseAgent",
+            ),
+        )
+        section_results_list = None
+        sections = None
+
+    logger.info("Writing: %d chars", len(writing_result))
+    logger.info("Exercises: %d generated", len(exercise_result.exercises))
+
+    # Step 4: TLDRAgent（依赖 writing output）
+    tldr_agent = TLDRAgent()
+    tldr_result = await _async_run_with_retry(
+        lambda: tldr_agent.async_run(writing_output=writing_result, chapter_idx=chapter_idx),
+        agent_name="TLDRAgent",
+    )
+    logger.info("TLDR: %d chars", len(tldr_result))
+
+    # Step 5: 合并并写入文件（同步 I/O）
+    output_dir = book_output_dir(book_slug)
+    exercise_tldr_md = _build_exercise_tldr(exercise_result, tldr_result)
+
+    if verbose_mode and section_results_list and len(section_results_list) > 1:
+        section_paths = _write_multi_file(
+            output_dir, chapter_idx, section_results_list, sections, exercise_tldr_md,
+        )
+        index_path = _write_chapter_index(
+            output_dir, chapter_idx, sections, section_paths, exercise_tldr_md,
+        )
+        logger.info("=== Async pipeline completed: %s (%d sections) ===", index_path, len(section_paths))
+        return ChapterResult(
+            output_path=index_path,
+            concepts=concepts_result,
+            section_paths=section_paths,
+        )
+    else:
+        merged = _merge_outputs(writing_result, exercise_result, tldr_result, chapter_idx)
+        filename = f"ch{chapter_idx:02d}.md"
+        output_path = output_dir / filename
+        _atomic_write(output_path, merged)
+        logger.info("=== Async pipeline completed: %s ===", output_path)
+        return ChapterResult(output_path=output_path, concepts=concepts_result)
+
+
+async def _async_run_verbose_writing(
+    writing_agent: WritingAgent,
+    chapter_text: str,
+    chapter_idx: int,
+    concepts: str,
+    toc: list[tuple[int, str, int]] | None,
+) -> tuple[list[str], list]:
+    """
+    异步 Verbose 模式：逐节调用 WritingAgent（串行，previous_summary 依赖）。
+
+    Returns:
+        (section_results, sections) 元组
+    """
+    from src.section_splitter import Section, split_chapter_into_sections
+
+    sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
+    logger.info(
+        "Verbose mode: chapter %d split into %d sections",
+        chapter_idx, len(sections),
+    )
+
+    section_results: list[str] = []
+    previous_summary = ""
+
+    for i, section in enumerate(sections):
+        logger.info(
+            "Verbose writing section %d/%d '%s' [L%d] (%d chars)",
+            i + 1, len(sections), section.title[:50], section.depth, len(section.text),
+        )
+        result = await _async_run_with_retry(
+            lambda s=section, idx=i: writing_agent.async_run_verbose(
+                section_text=s.text,
+                section_title=s.title,
+                section_idx=idx,
+                total_sections=len(sections),
+                chapter_idx=chapter_idx,
+                concepts=concepts,
+                previous_summary=previous_summary,
+            ),
+            agent_name=f"WritingAgent/section-{i + 1}",
+        )
+        section_results.append(result)
+        previous_summary = result[-500:] if len(result) > 500 else result
+
+    return section_results, sections
 
 
 def _run_verbose_writing(

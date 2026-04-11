@@ -1,5 +1,6 @@
 """Batch processing for full book tutorial generation."""
 import argparse
+import asyncio
 import json
 import logging
 import sys
@@ -9,7 +10,7 @@ from typing import Any
 
 from src.config import book_data_dir
 from src.glossary import load_glossary, merge_concepts, save_glossary, trim_to_budget
-from src.orchestrator import run_chapter_pipeline
+from src.orchestrator import async_run_chapter_pipeline
 from src.progress import init_progress, init_progress_fresh, mark_done, save_progress
 
 logger = logging.getLogger(__name__)
@@ -38,27 +39,26 @@ def load_chapters_raw(book_slug: str) -> dict[str, Any]:
     return data
 
 
-def run_batch(
+async def async_run_batch(
     book_slug: str,
     resume: bool = True,
     verbose_mode: bool = False,
+    max_workers: int = 4,
 ) -> list[Path]:
     """
-    Process all chapters of a book through the pipeline.
+    异步批量处理所有章节，支持章节级并行。
 
-    For each chapter:
-    1. Skip if already done (when resume=True)
-    2. Load glossary, trim to budget, pass to pipeline
-    3. Merge new concepts back into glossary
-    4. Save progress and glossary immediately (breakpoint-safe)
+    使用 asyncio.Semaphore 控制最大并发章节数。
+    Glossary 采用快照策略：所有并行章节共享同一快照，完成后延迟合并。
 
     Args:
-        book_slug: Book identifier (e.g., "CSAPP")
-        resume: If True, skip chapters already marked "done"
-        verbose_mode: If True, use verbose mode (section-by-section faithful rewrite)
+        book_slug: 书籍标识（如 "CSAPP"）
+        resume: 是否跳过已完成的章节
+        verbose_mode: 是否启用 verbose 模式
+        max_workers: 最大并行章节数
 
     Returns:
-        List of output file paths for all chapters processed in this run
+        本次运行中处理的章节输出文件路径列表
     """
     raw = load_chapters_raw(book_slug)
     total_chapters = raw["metadata"]["total_chapters"]
@@ -89,64 +89,100 @@ def run_batch(
         progress = init_progress_fresh(book_slug, total_chapters)
     save_progress(progress, book_slug)
 
-    # Load existing glossary
+    # Load existing glossary and snapshot
     glossary = load_glossary(book_slug)
+    glossary_lock = asyncio.Lock()
+    semaphore = asyncio.Semaphore(max_workers)
 
     completed: list[Path] = []
+    completed_lock = asyncio.Lock()
 
-    for chapter_key in chapter_keys:
+    async def process_chapter(chapter_key: str) -> Path | None:
+        """处理单个章节（带信号量控制并发）。"""
         chapter_idx = int(chapter_key)
-        status = progress.get(chapter_key, "pending")
 
-        if resume and status == "done":
-            logger.info("Skipping Ch.%d (already done)", chapter_idx)
-            continue
+        async with semaphore:
+            # 再次检查状态（可能在等待信号量时已被其他任务处理）
+            if resume and progress.get(chapter_key) == "done":
+                logger.info("Skipping Ch.%d (already done)", chapter_idx)
+                return None
 
-        logger.info(
-            "=== Processing Ch.%d/%d (%s) ===",
-            chapter_idx, total_chapters, book_slug,
-        )
-        start_time = time.time()
-
-        # Trim glossary before passing to pipeline
-        trimmed = trim_to_budget(glossary) if glossary else None
-
-        try:
-            result = run_chapter_pipeline(
-                chapter_text=raw[chapter_key],
-                chapter_idx=chapter_idx,
-                book_slug=book_slug,
-                glossary=trimmed,
-                verbose_mode=verbose_mode,
-                toc=toc,
+            logger.info(
+                "=== Processing Ch.%d/%d (%s) ===",
+                chapter_idx, total_chapters, book_slug,
             )
-        except RuntimeError as e:
-            logger.error("Ch.%d failed: %s", chapter_idx, e)
-            progress[chapter_key] = "failed"
-            save_progress(progress, book_slug)
-            raise
+            start_time = time.time()
 
-        elapsed = time.time() - start_time
-        logger.info(
-            "Ch.%d done in %.1fs -> %s", chapter_idx, elapsed, result.output_path,
-        )
+            # 使用 glossary 快照
+            trimmed = trim_to_budget(glossary) if glossary else None
 
-        # Merge new concepts into glossary
-        concept_dicts = [c.model_dump() for c in result.concepts.concepts]
-        glossary = merge_concepts(glossary, concept_dicts, chapter_idx)
+            try:
+                result = await async_run_chapter_pipeline(
+                    chapter_text=raw[chapter_key],
+                    chapter_idx=chapter_idx,
+                    book_slug=book_slug,
+                    glossary=trimmed,
+                    verbose_mode=verbose_mode,
+                    toc=toc,
+                )
+            except Exception as e:
+                logger.error("Ch.%d failed: %s", chapter_idx, e)
+                progress[chapter_key] = "failed"
+                save_progress(progress, book_slug)
+                return None
 
-        # Save both progress and glossary immediately (breakpoint-safe)
-        mark_done(progress, chapter_idx)
-        save_progress(progress, book_slug)
-        save_glossary(glossary, book_slug)
+            elapsed = time.time() - start_time
+            logger.info(
+                "Ch.%d done in %.1fs -> %s", chapter_idx, elapsed, result.output_path,
+            )
 
-        completed.append(result.output_path)
+            # 合并新概念到共享 glossary（锁保护）
+            concept_dicts = [c.model_dump() for c in result.concepts.concepts]
+            async with glossary_lock:
+                glossary.update(merge_concepts(glossary, concept_dicts, chapter_idx))
+                mark_done(progress, chapter_idx)
+                save_progress(progress, book_slug)
+                save_glossary(glossary, book_slug)
+
+            async with completed_lock:
+                completed.append(result.output_path)
+            return result.output_path
+
+    # 启动所有章节任务
+    tasks = [process_chapter(k) for k in chapter_keys]
+    await asyncio.gather(*tasks)
 
     logger.info(
         "=== Batch complete: %d/%d chapters processed ===",
         len(completed), total_chapters,
     )
     return completed
+
+
+def run_batch(
+    book_slug: str,
+    resume: bool = True,
+    verbose_mode: bool = False,
+    max_workers: int = 1,
+) -> list[Path]:
+    """
+    批量处理所有章节的同步入口。
+
+    Args:
+        book_slug: 书籍标识（如 "CSAPP"）
+        resume: 是否跳过已完成的章节
+        verbose_mode: 是否启用 verbose 模式
+        max_workers: 最大并行章节数（默认 1 为串行）
+
+    Returns:
+        本次运行中处理的章节输出文件路径列表
+    """
+    return asyncio.run(async_run_batch(
+        book_slug=book_slug,
+        resume=resume,
+        verbose_mode=verbose_mode,
+        max_workers=max_workers,
+    ))
 
 
 def main() -> None:

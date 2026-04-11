@@ -46,6 +46,28 @@ class WritingAgent(BaseAgent):
         logger.info("WritingAgent produced %d chars", len(raw))
         return raw
 
+    async def async_run(
+        self,
+        chapter_text: str,
+        chapter_idx: int,
+        concepts: str,
+    ) -> str:
+        """异步版本：生成教程正文。"""
+        writing_style = WRITING_STYLE_PATH.read_text(encoding="utf-8")
+        system_template = self.load_prompt("system")
+        system = system_template.format(WRITING_STYLE=writing_style)
+
+        user_template = self.load_prompt("user")
+        user = user_template.format(
+            chapter_idx=chapter_idx,
+            concepts_json=concepts,
+            chapter_text=chapter_text[:60000],
+        )
+
+        raw = await self.async_call_api(system=system, user=user)
+        logger.info("WritingAgent produced %d chars", len(raw))
+        return raw
+
     def run_verbose(
         self,
         section_text: str,
@@ -108,6 +130,57 @@ class WritingAgent(BaseAgent):
         )
 
         raw = self.call_api(system=system, user=user, max_tokens=VERBOSE_MAX_TOKENS)
+        logger.info(
+            "WritingAgent (verbose) section %d/%d '%s': %d chars",
+            section_idx + 1, total_sections, section_title[:40], len(raw),
+        )
+        return raw
+
+    async def async_run_verbose(
+        self,
+        section_text: str,
+        section_title: str,
+        section_idx: int,
+        total_sections: int,
+        chapter_idx: int,
+        concepts: str,
+        previous_summary: str = "",
+    ) -> str:
+        """异步版本：Verbose 模式单小节忠实改写。"""
+        writing_style = WRITING_STYLE_PATH.read_text(encoding="utf-8")
+        system_template = self._load_verbose_prompt("system")
+        system = system_template.format(WRITING_STYLE=writing_style)
+
+        if section_idx == 0:
+            position_hint = (
+                "这是本章的**第一节**。请先写一个章节引言/动机段，"
+                "介绍本章要讲什么、为什么重要、旧方案为什么不行，"
+                "然后自然过渡到本节内容。"
+            )
+        elif section_idx == total_sections - 1:
+            position_hint = (
+                "这是本章的**最后一节**。在本节内容改写完成后，"
+                "请追加一个章节总结段，用连贯文字总结本章核心收获。"
+            )
+        else:
+            position_hint = (
+                f"这是本章的第 {section_idx + 1} 节（共 {total_sections} 节），"
+                "中间节，正常改写并注意从上一节自然承接。"
+            )
+
+        user_template = self._load_verbose_prompt("user")
+        user = user_template.format(
+            chapter_idx=chapter_idx,
+            section_idx=section_idx + 1,
+            total_sections=total_sections,
+            section_title=section_title,
+            section_position_hint=position_hint,
+            concepts_json=concepts,
+            previous_summary=previous_summary or "（这是第一节，没有上一节内容）",
+            section_text=section_text,
+        )
+
+        raw = await self.async_call_api(system=system, user=user, max_tokens=VERBOSE_MAX_TOKENS)
         logger.info(
             "WritingAgent (verbose) section %d/%d '%s': %d chars",
             section_idx + 1, total_sections, section_title[:40], len(raw),

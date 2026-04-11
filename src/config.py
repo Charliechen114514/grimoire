@@ -20,6 +20,7 @@ ANTHROPIC_BASE_URL: str | None = os.getenv("ANTHROPIC_BASE_URL") or None
 MODEL_NAME: str = "claude-sonnet-4-6-20250514"
 MAX_TOKENS: int = 8192
 MAX_RETRIES: int = 3
+MAX_CONCURRENT_CHAPTERS: int = int(os.getenv("MAX_CONCURRENT_CHAPTERS", "4"))
 
 # ── Token 预算 ──
 GLOSSARY_MAX_TOKENS: int = 3000

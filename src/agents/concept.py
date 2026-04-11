@@ -73,3 +73,35 @@ class ConceptAgent(BaseAgent):
             sum(1 for c in result.concepts if c.is_new),
         )
         return result
+
+    async def async_run(
+        self,
+        chapter_text: str,
+        glossary: dict[str, Any] | None = None,
+        truncate: bool = True,
+    ) -> ConceptOutput:
+        """异步版本：提取章节中的技术概念。"""
+        system = self.load_prompt("system")
+        user_template = self.load_prompt("user")
+
+        glossary_text = "（无已有词汇表）"
+        if glossary:
+            lines = []
+            for name, info in glossary.items():
+                lines.append(f"- {name}：{info['definition']}（首见 Ch.{info['first_seen_chapter']}）")
+            glossary_text = "\n".join(lines)
+
+        text = chapter_text[:60000] if truncate else chapter_text
+        user = user_template.format(
+            chapter_text=text,
+            glossary_text=glossary_text,
+        )
+
+        raw = await self.async_call_api(system=system, user=user, max_tokens=4096)
+        result = self.parse_json(raw, ConceptOutput)
+        logger.info(
+            "Extracted %d concepts (%d new)",
+            len(result.concepts),
+            sum(1 for c in result.concepts if c.is_new),
+        )
+        return result
