@@ -89,7 +89,9 @@ def _extract_page_text(doc: pymupdf.Document, start_page: int, end_page: int) ->
     return "\n\n".join(parts)
 
 
-def _extract_chapters_from_pdf(pdf_path: Path) -> dict[int, str]:
+def _extract_chapters_from_pdf(
+    pdf_path: Path,
+) -> tuple[dict[int, str], list[tuple[int, str, int]]]:
     """
     用 pymupdf TOC 定位章节边界，按页范围提取文本。
 
@@ -97,7 +99,9 @@ def _extract_chapters_from_pdf(pdf_path: Path) -> dict[int, str]:
         pdf_path: PDF 文件路径
 
     Returns:
-        {chapter_num: chapter_text} 字典
+        (chapters, toc) 元组：
+        - chapters: {chapter_num: chapter_text} 字典
+        - toc: pymupdf 原始 TOC [(level, title, page), ...]
     """
     doc = pymupdf.open(str(pdf_path))
     try:
@@ -106,7 +110,7 @@ def _extract_chapters_from_pdf(pdf_path: Path) -> dict[int, str]:
 
         if not chapter_entries:
             logger.warning("No chapter entries found in TOC for %s", pdf_path)
-            return {}
+            return {}, toc
 
         chapters: dict[int, str] = {}
         for i, (ch_num, title, start_page) in enumerate(chapter_entries):
@@ -127,7 +131,7 @@ def _extract_chapters_from_pdf(pdf_path: Path) -> dict[int, str]:
             "Extracted %d chapters from %s: %s",
             len(chapters), pdf_path.name, sorted(chapters.keys()),
         )
-        return chapters
+        return chapters, toc
     finally:
         doc.close()
 
@@ -150,7 +154,7 @@ def parse_chapter(pdf_path: Path, chapter_n: int) -> str:
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    chapters = _extract_chapters_from_pdf(pdf_path)
+    chapters, _toc = _extract_chapters_from_pdf(pdf_path)
 
     if chapter_n not in chapters:
         available = sorted(chapters.keys())
@@ -160,7 +164,10 @@ def parse_chapter(pdf_path: Path, chapter_n: int) -> str:
     return chapters[chapter_n]
 
 
-def split_book(pdf_path: Path, book_slug: str) -> dict[int, str]:
+def split_book(
+    pdf_path: Path,
+    book_slug: str,
+) -> tuple[dict[int, str], list[tuple[int, str, int]]]:
     """
     将整本 PDF 按章节切割为文本字典。
 
@@ -169,21 +176,24 @@ def split_book(pdf_path: Path, book_slug: str) -> dict[int, str]:
         book_slug: 书籍短名，用于日志标识
 
     Returns:
-        {chapter_idx: chapter_text} 字典，chapter_idx 从 1 开始
+        (chapters, toc) 元组：
+        - chapters: {chapter_idx: chapter_text} 字典，chapter_idx 从 1 开始
+        - toc: pymupdf 原始 TOC [(level, title, page), ...]
     """
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
     logger.info("Splitting book '%s': %s", book_slug, pdf_path)
-    chapters = _extract_chapters_from_pdf(pdf_path)
+    chapters, toc = _extract_chapters_from_pdf(pdf_path)
     logger.info("Book '%s': %d chapters extracted", book_slug, len(chapters))
-    return chapters
+    return chapters, toc
 
 
 def save_chapters_raw(
     chapters: dict[int, str],
     book_slug: str,
     pdf_path: Path,
+    toc: list[tuple[int, str, int]] | None = None,
 ) -> Path:
     """
     将章节字典持久化为 data/{slug}/chapters_raw.json（原子写入）。
@@ -192,6 +202,7 @@ def save_chapters_raw(
         chapters: {chapter_idx: chapter_text} 字典
         book_slug: 书籍短名
         pdf_path: 原始 PDF 路径（记入 metadata）
+        toc: pymupdf 原始 TOC，存入 metadata 供 verbose mode 使用
 
     Returns:
         写入的文件路径
@@ -208,6 +219,11 @@ def save_chapters_raw(
         "total_chapters": len(chapters),
         "parse_timestamp": datetime.now(timezone.utc).isoformat(),
     }
+    if toc:
+        payload["metadata"]["toc"] = [
+            {"level": lvl, "title": title, "page": page}
+            for lvl, title, page in toc
+        ]
 
     data_dir.mkdir(parents=True, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(suffix=".json", dir=str(data_dir))

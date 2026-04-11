@@ -41,6 +41,7 @@ def load_chapters_raw(book_slug: str) -> dict[str, Any]:
 def run_batch(
     book_slug: str,
     resume: bool = True,
+    verbose_mode: bool = False,
 ) -> list[Path]:
     """
     Process all chapters of a book through the pipeline.
@@ -54,12 +55,26 @@ def run_batch(
     Args:
         book_slug: Book identifier (e.g., "CSAPP")
         resume: If True, skip chapters already marked "done"
+        verbose_mode: If True, use verbose mode (section-by-section faithful rewrite)
 
     Returns:
         List of output file paths for all chapters processed in this run
     """
     raw = load_chapters_raw(book_slug)
     total_chapters = raw["metadata"]["total_chapters"]
+
+    # 从 metadata 中加载 TOC（verbose 模式需要）
+    toc_raw = raw["metadata"].get("toc")
+    toc = None
+    if toc_raw and verbose_mode:
+        toc = [(e["level"], e["title"], e["page"]) for e in toc_raw]
+        logger.info("Loaded TOC: %d entries for verbose mode", len(toc))
+    elif verbose_mode and not toc_raw:
+        logger.warning(
+            "Verbose mode requested but no TOC in chapters_raw.json. "
+            "Re-run 'parse' command to generate TOC data. "
+            "Falling back to single-section mode.",
+        )
 
     # Get sorted chapter keys (only numeric ones)
     chapter_keys = sorted(
@@ -102,6 +117,8 @@ def run_batch(
                 chapter_idx=chapter_idx,
                 book_slug=book_slug,
                 glossary=trimmed,
+                verbose_mode=verbose_mode,
+                toc=toc,
             )
         except RuntimeError as e:
             logger.error("Ch.%d failed: %s", chapter_idx, e)

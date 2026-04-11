@@ -29,12 +29,12 @@ def _cmd_parse(args: argparse.Namespace) -> None:
         print(f"Error: file not found: {pdf_path}", file=sys.stderr)
         sys.exit(1)
 
-    chapters = split_book(pdf_path, book_slug=args.slug)
+    chapters, toc = split_book(pdf_path, book_slug=args.slug)
     if not chapters:
         print("Error: no chapters found in PDF TOC", file=sys.stderr)
         sys.exit(1)
 
-    out = save_chapters_raw(chapters, book_slug=args.slug, pdf_path=pdf_path)
+    out = save_chapters_raw(chapters, book_slug=args.slug, pdf_path=pdf_path, toc=toc)
     print(f"OK: {len(chapters)} chapters -> {out}")
 
 
@@ -43,7 +43,11 @@ def _cmd_batch(args: argparse.Namespace) -> None:
 
     _setup_logging(args.verbose)
     try:
-        paths = run_batch(book_slug=args.book_slug, resume=not args.no_resume)
+        paths = run_batch(
+            book_slug=args.book_slug,
+            resume=not args.no_resume,
+            verbose_mode=getattr(args, "verbose_mode", False),
+        )
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run to resume.")
         sys.exit(1)
@@ -99,11 +103,11 @@ def _cmd_all(args: argparse.Namespace) -> None:
         print(f"Error: file not found: {pdf_path}", file=sys.stderr)
         sys.exit(1)
 
-    chapters = split_book(pdf_path, book_slug=slug)
+    chapters, toc = split_book(pdf_path, book_slug=slug)
     if not chapters:
         print("Error: no chapters found in PDF TOC", file=sys.stderr)
         sys.exit(1)
-    save_chapters_raw(chapters, book_slug=slug, pdf_path=pdf_path)
+    save_chapters_raw(chapters, book_slug=slug, pdf_path=pdf_path, toc=toc)
     print(f"  Parsed {len(chapters)} chapters")
 
     # Phase 2: Batch generate tutorials
@@ -111,7 +115,11 @@ def _cmd_all(args: argparse.Namespace) -> None:
     print(f"[2/4] Generating tutorials for: {slug}")
     print(f"{'='*60}")
     try:
-        run_batch(book_slug=slug, resume=not args.no_resume)
+        run_batch(
+            book_slug=slug,
+            resume=not args.no_resume,
+            verbose_mode=getattr(args, "verbose_mode", False),
+        )
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run with 'batch' to resume.")
         sys.exit(1)
@@ -151,6 +159,10 @@ def main() -> None:
     p_batch = sub.add_parser("batch", help="Run full tutorial generation pipeline")
     p_batch.add_argument("book_slug", help="Book identifier")
     p_batch.add_argument("--no-resume", action="store_true", help="Start from scratch")
+    p_batch.add_argument(
+        "--verbose-mode", action="store_true",
+        help="Verbose mode: section-by-section faithful rewrite",
+    )
 
     # ── review ──
     p_review = sub.add_parser("review", help="Review generated tutorials")
@@ -168,6 +180,10 @@ def main() -> None:
     p_all.add_argument("--slug", "-s", required=True, help="Book slug")
     p_all.add_argument("--site-name", default=None, help="Site display name")
     p_all.add_argument("--no-resume", action="store_true", help="Start batch from scratch")
+    p_all.add_argument(
+        "--verbose-mode", action="store_true",
+        help="Verbose mode: section-by-section faithful rewrite",
+    )
 
     args = parser.parse_args()
 

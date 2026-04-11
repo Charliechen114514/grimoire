@@ -58,29 +58,56 @@ def package(book_slug: str, site_name: str | None = None) -> Path:
 def _copy_tutorials(
     tutorials_dir: Path,
     docs_chapters_dir: Path,
-) -> list[tuple[int, str, Path]]:
+) -> list[tuple[int, str, Path, list[Path]]]:
     """
     复制教程 markdown 文件到 docs/chapters/。
 
     Returns:
-        [(chapter_idx, title, dest_path), ...] 排序后的章节列表
+        [(chapter_idx, title, index_path, section_paths), ...] 排序后的章节列表
     """
-    chapters: list[tuple[int, str, Path]] = []
+    chapters: list[tuple[int, str, Path, list[Path]]] = []
 
-    for src_path in sorted(tutorials_dir.glob("ch*.md")):
+    # 先找出所有主索引文件 ch{NN}.md
+    index_files: dict[int, Path] = {}
+    for src_path in sorted(tutorials_dir.glob("ch??.md")):
         try:
             chapter_idx = int(src_path.stem[2:])
         except ValueError:
             continue
+        index_files[chapter_idx] = src_path
 
-        dest_path = docs_chapters_dir / src_path.name
-        shutil.copy2(src_path, dest_path)
+    # 找出所有分节文件 ch{NN}_{S}.md，按章节分组
+    section_files: dict[int, list[Path]] = {}
+    for src_path in sorted(tutorials_dir.glob("ch??_*.md")):
+        # ch05_1.md -> chapter_idx=5
+        try:
+            chapter_idx = int(src_path.stem[2:4])
+        except ValueError:
+            continue
+        section_files.setdefault(chapter_idx, []).append(src_path)
 
-        title = _extract_title(dest_path)
-        chapters.append((chapter_idx, title, dest_path))
-        logger.info("Copied Ch.%d: %s", chapter_idx, title)
+    for chapter_idx in sorted(index_files.keys()):
+        src_index = index_files[chapter_idx]
 
-    chapters.sort(key=lambda x: x[0])
+        # 复制索引文件
+        dest_index = docs_chapters_dir / src_index.name
+        shutil.copy2(src_index, dest_index)
+
+        # 复制分节文件
+        secs = section_files.get(chapter_idx, [])
+        dest_secs: list[Path] = []
+        for sec_path in sorted(secs):
+            dest_sec = docs_chapters_dir / sec_path.name
+            shutil.copy2(sec_path, dest_sec)
+            dest_secs.append(dest_sec)
+
+        title = _extract_title(dest_index)
+        chapters.append((chapter_idx, title, dest_index, dest_secs))
+        logger.info(
+            "Copied Ch.%d: %s (%d sections)",
+            chapter_idx, title, len(dest_secs),
+        )
+
     return chapters
 
 
@@ -103,7 +130,7 @@ def _extract_title(md_path: Path) -> str:
 
 def _generate_index(
     site_name: str,
-    chapters: list[tuple[int, str, Path]],
+    chapters: list[tuple[int, str, Path, list[Path]]],
     docs_dir: Path,
     book_slug: str,
 ) -> Path:
@@ -117,7 +144,7 @@ def _generate_index(
         "## 章节目录\n",
     ]
 
-    for chapter_idx, title, _ in chapters:
+    for chapter_idx, title, _, _ in chapters:
         lines.append(f"- [第 {chapter_idx} 章 {title}](chapters/ch{chapter_idx:02d}.md)\n")
 
     lines.append("\n---\n")
@@ -131,16 +158,27 @@ def _generate_index(
 
 def _generate_mkdocs_config(
     site_name: str,
-    chapters: list[tuple[int, str, Path]],
+    chapters: list[tuple[int, str, Path, list[Path]]],
     output_dir: Path,
 ) -> Path:
     """生成 mkdocs.yml 配置文件。"""
     nav_entries: list[str] = []
-    for chapter_idx, title, _ in chapters:
+    for chapter_idx, title, _, sec_paths in chapters:
         display = f"第 {chapter_idx} 章 {title}"
         if len(display) > 50:
             display = f"第 {chapter_idx} 章"
-        nav_entries.append(f'      - "{display}": chapters/ch{chapter_idx:02d}.md')
+
+        if sec_paths:
+            # 多文件章节：索引页 + 子节
+            nav_entries.append(f'      - "{display}": chapters/ch{chapter_idx:02d}.md')
+            for sec_path in sec_paths:
+                sec_title = _extract_title(sec_path)
+                nav_entries.append(
+                    f'          - "{sec_title}": chapters/{sec_path.name}'
+                )
+        else:
+            # 单文件章节
+            nav_entries.append(f'      - "{display}": chapters/ch{chapter_idx:02d}.md')
 
     nav_block = "\n".join(nav_entries)
 

@@ -35,6 +35,7 @@ class ConceptAgent(BaseAgent):
         self,
         chapter_text: str,
         glossary: dict[str, Any] | None = None,
+        truncate: bool = True,
     ) -> ConceptOutput:
         """
         提取章节中的技术概念。
@@ -42,6 +43,7 @@ class ConceptAgent(BaseAgent):
         Args:
             chapter_text: 章节原文
             glossary: 已有词汇表 {"概念名": {"definition": ..., "first_seen_chapter": ...}}
+            truncate: 是否截断输入文本（verbose 模式下传 False）
 
         Returns:
             ConceptOutput 包含所有提取的概念
@@ -57,8 +59,9 @@ class ConceptAgent(BaseAgent):
                 lines.append(f"- {name}：{info['definition']}（首见 Ch.{info['first_seen_chapter']}）")
             glossary_text = "\n".join(lines)
 
+        text = chapter_text[:60000] if truncate else chapter_text
         user = user_template.format(
-            chapter_text=chapter_text[:60000],
+            chapter_text=text,
             glossary_text=glossary_text,
         )
 
