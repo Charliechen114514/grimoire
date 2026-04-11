@@ -14,9 +14,24 @@ from src.config import book_data_dir
 logger = logging.getLogger(__name__)
 
 
+_SKIP_L1 = re.compile(
+    r"^(?:cover|title\s*page|copyright|dedication|about|"
+    r"contributor|table\s*of\s*contents|contents\s*at\s*a\s*glance|"
+    r"preface|foreword|acknowledgment|index|"
+    r"other\s*books?\s*you\s*may\s*enjoy|"
+    r"appendix)",
+    re.IGNORECASE,
+)
+
+
 def _extract_chapter_toc(toc: list[tuple[int, str, int]]) -> list[tuple[int, str, int]]:
     """
-    从 TOC 中筛选出章级条目（含 'Chapter' 关键字）。
+    从 TOC 中筛选出章级条目。
+
+    策略：
+    1. 优先匹配 "Chapter N" 格式的标题
+    2. 若无匹配，回退：将所有 L1 条目按顺序编号为章节，
+       跳过 Preface / Index / Cover 等非正文条目
 
     Args:
         toc: pymupdf 的 get_toc() 返回值 [(level, title, page), ...]
@@ -24,12 +39,31 @@ def _extract_chapter_toc(toc: list[tuple[int, str, int]]) -> list[tuple[int, str
     Returns:
         [(chapter_num, title, start_page), ...] 按章节号排序
     """
+    # ── 策略 1：匹配 "Chapter N" ──
     pattern = re.compile(r"Chapter\s+(\d+)", re.IGNORECASE)
     chapters = []
     for _level, title, page in toc:
         m = pattern.search(title)
         if m:
             chapters.append((int(m.group(1)), title, page))
+
+    if chapters:
+        chapters.sort(key=lambda x: x[0])
+        return chapters
+
+    # ── 策略 2：回退 — L1 条目顺序编号 ──
+    logger.info("No 'Chapter N' entries found, falling back to L1-based detection")
+    ch_num = 0
+    for level, title, page in toc:
+        if level != 1:
+            continue
+        if _SKIP_L1.search(title.strip()):
+            continue
+        # 跳过 TOC 本身的页码条目（通常在正文之前）
+        if page < 1:
+            continue
+        ch_num += 1
+        chapters.append((ch_num, title.strip(), page))
 
     chapters.sort(key=lambda x: x[0])
     return chapters
