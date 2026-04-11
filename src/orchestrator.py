@@ -1,9 +1,9 @@
 """Orchestrator — 串联 4 个 Agent 处理单个章节"""
 import asyncio
 import json
-import logging
 import os
 import tempfile
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -13,8 +13,7 @@ from src.agents.exercise import ExerciseAgent, ExerciseOutput
 from src.agents.tldr import TLDRAgent
 from src.agents.writing import WritingAgent
 from src.config import book_output_dir
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 _MAX_RETRIES = 2  # Pydantic 验证失败时的重试次数
 
@@ -58,9 +57,11 @@ def run_chapter_pipeline(
         RuntimeError: Agent 执行失败
     """
     mode_label = "VERBOSE" if verbose_mode else "STANDARD"
-    logger.info("=== Pipeline started [%s]: %s Ch.%d ===", mode_label, book_slug, chapter_idx)
+    logger.info("=== Pipeline started [{}]: {} Ch.{} (input: {} chars) ===", mode_label, book_slug, chapter_idx, len(chapter_text))
+    pipeline_start = time.time()
 
     # Step 1: ConceptAgent
+    step_start = time.time()
     concept_agent = ConceptAgent(model=model)
     concepts_result = _run_with_retry(
         lambda: concept_agent.run(
@@ -71,9 +72,10 @@ def run_chapter_pipeline(
         agent_name="ConceptAgent",
     )
     concepts_json = concepts_result.model_dump_json(indent=2)
-    logger.info("Concepts: %d extracted", len(concepts_result.concepts))
+    logger.info("Concepts: {} extracted ({:.1f}s)", len(concepts_result.concepts), time.time() - step_start)
 
     # Step 2: WritingAgent（依赖 concepts）
+    step_start = time.time()
     writing_agent = WritingAgent(model=model)
     if verbose_mode:
         section_results, sections = _run_verbose_writing(
@@ -96,9 +98,10 @@ def run_chapter_pipeline(
             ),
             agent_name="WritingAgent",
         )
-    logger.info("Writing: %d chars", len(writing_result))
+    logger.info("Writing: {} chars ({:.1f}s)", len(writing_result), time.time() - step_start)
 
     # Step 3: ExerciseAgent（依赖 concepts）
+    step_start = time.time()
     exercise_agent = ExerciseAgent(model=model)
     exercise_result = _run_with_retry(
         lambda: exercise_agent.run(
@@ -108,15 +111,16 @@ def run_chapter_pipeline(
         ),
         agent_name="ExerciseAgent",
     )
-    logger.info("Exercises: %d generated", len(exercise_result.exercises))
+    logger.info("Exercises: {} generated ({:.1f}s)", len(exercise_result.exercises), time.time() - step_start)
 
     # Step 4: TLDRAgent（依赖 writing output）
+    step_start = time.time()
     tldr_agent = TLDRAgent(model=model)
     tldr_result = _run_with_retry(
         lambda: tldr_agent.run(writing_output=writing_result, chapter_idx=chapter_idx),
         agent_name="TLDRAgent",
     )
-    logger.info("TLDR: %d chars", len(tldr_result))
+    logger.info("TLDR: {} chars ({:.1f}s)", len(tldr_result), time.time() - step_start)
 
     # Step 5: 合并并写入文件
     output_dir = book_output_dir(book_slug)
@@ -131,7 +135,7 @@ def run_chapter_pipeline(
         index_path = _write_chapter_index(
             output_dir, chapter_idx, sections, section_paths, exercise_tldr_md,
         )
-        logger.info("=== Pipeline completed: %s (%d sections) ===", index_path, len(section_paths))
+        logger.info("=== Pipeline completed: {} ({} sections, total {:.1f}s) ===", index_path, len(section_paths), time.time() - pipeline_start)
         return ChapterResult(
             output_path=index_path,
             concepts=concepts_result,
@@ -143,7 +147,7 @@ def run_chapter_pipeline(
         filename = f"ch{chapter_idx:02d}.md"
         output_path = output_dir / filename
         _atomic_write(output_path, merged)
-        logger.info("=== Pipeline completed: %s ===", output_path)
+        logger.info("=== Pipeline completed: {} (total {:.1f}s) ===", output_path, time.time() - pipeline_start)
         return ChapterResult(output_path=output_path, concepts=concepts_result)
 
 
@@ -157,11 +161,11 @@ def _run_with_retry(func: callable, agent_name: str) -> Any:
             last_error = e
             if attempt < _MAX_RETRIES:
                 logger.warning(
-                    "[%s] Attempt %d failed: %s — retrying",
+                    "[{}] Attempt {} failed: {} — retrying",
                     agent_name, attempt + 1, e,
                 )
             else:
-                logger.error("[%s] All %d attempts failed", agent_name, _MAX_RETRIES + 1)
+                logger.error("[{}] All {} attempts failed", agent_name, _MAX_RETRIES + 1)
     raise RuntimeError(f"[{agent_name}] Failed after {_MAX_RETRIES + 1} attempts: {last_error}")
 
 
@@ -175,11 +179,11 @@ async def _async_run_with_retry(func: callable, agent_name: str) -> Any:
             last_error = e
             if attempt < _MAX_RETRIES:
                 logger.warning(
-                    "[%s] Attempt %d failed: %s — retrying",
+                    "[{}] Attempt {} failed: {} — retrying",
                     agent_name, attempt + 1, e,
                 )
             else:
-                logger.error("[%s] All %d attempts failed", agent_name, _MAX_RETRIES + 1)
+                logger.error("[{}] All {} attempts failed", agent_name, _MAX_RETRIES + 1)
     raise RuntimeError(f"[{agent_name}] Failed after {_MAX_RETRIES + 1} attempts: {last_error}")
 
 
@@ -199,9 +203,11 @@ async def async_run_chapter_pipeline(
     Args/Returns: 同 run_chapter_pipeline
     """
     mode_label = "VERBOSE" if verbose_mode else "STANDARD"
-    logger.info("=== Async pipeline started [%s]: %s Ch.%d ===", mode_label, book_slug, chapter_idx)
+    logger.info("=== Async pipeline started [{}]: {} Ch.{} (input: {} chars) ===", mode_label, book_slug, chapter_idx, len(chapter_text))
+    pipeline_start = time.time()
 
     # Step 1: ConceptAgent
+    step_start = time.time()
     concept_agent = ConceptAgent(model=model)
     concepts_result = await _async_run_with_retry(
         lambda: concept_agent.async_run(
@@ -212,9 +218,10 @@ async def async_run_chapter_pipeline(
         agent_name="ConceptAgent",
     )
     concepts_json = concepts_result.model_dump_json(indent=2)
-    logger.info("Concepts: %d extracted", len(concepts_result.concepts))
+    logger.info("Concepts: {} extracted ({:.1f}s)", len(concepts_result.concepts), time.time() - step_start)
 
     # Step 2+3: Writing + Exercise 并行
+    parallel_start = time.time()
     writing_agent = WritingAgent(model=model)
     exercise_agent = ExerciseAgent(model=model)
 
@@ -262,16 +269,17 @@ async def async_run_chapter_pipeline(
         section_results_list = None
         sections = None
 
-    logger.info("Writing: %d chars", len(writing_result))
-    logger.info("Exercises: %d generated", len(exercise_result.exercises))
+    logger.info("Writing: {} chars", len(writing_result))
+    logger.info("Exercises: {} generated (parallel step {:.1f}s)", len(exercise_result.exercises), time.time() - parallel_start)
 
     # Step 4: TLDRAgent（依赖 writing output）
+    step_start = time.time()
     tldr_agent = TLDRAgent(model=model)
     tldr_result = await _async_run_with_retry(
         lambda: tldr_agent.async_run(writing_output=writing_result, chapter_idx=chapter_idx),
         agent_name="TLDRAgent",
     )
-    logger.info("TLDR: %d chars", len(tldr_result))
+    logger.info("TLDR: {} chars ({:.1f}s)", len(tldr_result), time.time() - step_start)
 
     # Step 5: 合并并写入文件（同步 I/O）
     output_dir = book_output_dir(book_slug)
@@ -284,7 +292,7 @@ async def async_run_chapter_pipeline(
         index_path = _write_chapter_index(
             output_dir, chapter_idx, sections, section_paths, exercise_tldr_md,
         )
-        logger.info("=== Async pipeline completed: %s (%d sections) ===", index_path, len(section_paths))
+        logger.info("=== Async pipeline completed: {} ({} sections, total {:.1f}s) ===", index_path, len(section_paths), time.time() - pipeline_start)
         return ChapterResult(
             output_path=index_path,
             concepts=concepts_result,
@@ -295,7 +303,7 @@ async def async_run_chapter_pipeline(
         filename = f"ch{chapter_idx:02d}.md"
         output_path = output_dir / filename
         _atomic_write(output_path, merged)
-        logger.info("=== Async pipeline completed: %s ===", output_path)
+        logger.info("=== Async pipeline completed: {} (total {:.1f}s) ===", output_path, time.time() - pipeline_start)
         return ChapterResult(output_path=output_path, concepts=concepts_result)
 
 
@@ -316,7 +324,7 @@ async def _async_run_verbose_writing(
 
     sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
     logger.info(
-        "Verbose mode: chapter %d split into %d sections",
+        "Verbose mode: chapter {} split into {} sections",
         chapter_idx, len(sections),
     )
 
@@ -325,7 +333,7 @@ async def _async_run_verbose_writing(
 
     for i, section in enumerate(sections):
         logger.info(
-            "Verbose writing section %d/%d '%s' [L%d] (%d chars)",
+            "Verbose writing section {}/{} '{}' [L{}] ({} chars)",
             i + 1, len(sections), section.title[:50], section.depth, len(section.text),
         )
         result = await _async_run_with_retry(
@@ -365,7 +373,7 @@ def _run_verbose_writing(
 
     sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
     logger.info(
-        "Verbose mode: chapter %d split into %d sections",
+        "Verbose mode: chapter {} split into {} sections",
         chapter_idx, len(sections),
     )
 
@@ -374,7 +382,7 @@ def _run_verbose_writing(
 
     for i, section in enumerate(sections):
         logger.info(
-            "Verbose writing section %d/%d '%s' [L%d] (%d chars)",
+            "Verbose writing section {}/{} '{}' [L{}] ({} chars)",
             i + 1, len(sections), section.title[:50], section.depth, len(section.text),
         )
         result = _run_with_retry(
@@ -451,7 +459,7 @@ def _write_multi_file(
 
         _atomic_write(path, body)
         paths.append(path)
-        logger.info("Wrote section %d/%d: %s (%d chars)", i + 1, len(sections), filename, len(body))
+        logger.info("Wrote section {}/{}: {} ({} chars)", i + 1, len(sections), filename, len(body))
 
     return paths
 
@@ -522,7 +530,9 @@ def _atomic_write(path: Path, content: str) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             f.write(content)
         os.replace(tmp_path, path)
+        logger.debug("Atomic write: {} ({} chars)", path, len(content))
     except BaseException:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)
+        logger.error("Atomic write failed for {}, temp file cleaned up", path)
         raise

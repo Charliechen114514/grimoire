@@ -1,7 +1,6 @@
 """Agent 基类 — prompt 加载 / API 调用 / 重试 / Pydantic 验证"""
 import asyncio
 import json
-import logging
 import re
 import time
 from abc import ABC, abstractmethod
@@ -18,8 +17,7 @@ from src.config import (
     MAX_TOKENS,
     PROMPTS_DIR,
 )
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 T = TypeVar("T", bound=BaseModel)
 
@@ -46,6 +44,7 @@ class BaseAgent(ABC):
         self._model = model  # alias 或原始名，在 call_api 时通过 resolve_model 解析
         self._client: anthropic.Anthropic | None = None
         self._async_client: anthropic.AsyncAnthropic | None = None
+        logger.debug("Agent '{}' initialized, model_override={}", agent_name, model)
 
     @property
     def model_name(self) -> str:
@@ -84,7 +83,9 @@ class BaseAgent(ABC):
         path = PROMPTS_DIR / prompt_type / f"{self.agent_name}_{prompt_type}.md"
         if not path.exists():
             raise FileNotFoundError(f"Prompt not found: {path}")
-        return path.read_text(encoding="utf-8")
+        content = path.read_text(encoding="utf-8")
+        logger.debug("[{}] Loaded {} prompt: {} chars", self.agent_name, prompt_type, len(content))
+        return content
 
     def call_api(
         self,
@@ -107,6 +108,11 @@ class BaseAgent(ABC):
             RuntimeError: 超过最大重试次数
         """
         tokens = max_tokens or MAX_TOKENS
+        logger.debug(
+            "[{}] call_api: model={}, max_tokens={}, system={} chars, user={} chars",
+            self.agent_name, self.model_name, tokens, len(system), len(user),
+        )
+        start = time.time()
 
         for attempt in range(MAX_RETRIES):
             try:
@@ -116,12 +122,22 @@ class BaseAgent(ABC):
                     system=system,
                     messages=[{"role": "user", "content": user}],
                 )
-                return resp.content[0].text
+                elapsed = time.time() - start
+                output_text = resp.content[0].text
+                logger.info(
+                    "[{}] API call completed: model={}, attempt={}, "
+                    "input_tokens={}, output_tokens={}, elapsed={:.1f}s",
+                    self.agent_name, self.model_name, attempt + 1,
+                    getattr(resp.usage, "input_tokens", "?"),
+                    getattr(resp.usage, "output_tokens", "?"),
+                    elapsed,
+                )
+                return output_text
 
             except anthropic.APIError as e:
                 delay = _BASE_DELAY * (2**attempt)
                 logger.warning(
-                    "[%s] API error (attempt %d/%d): %s — retry in %.1fs",
+                    "[{}] API error (attempt {}/{}): {} — retry in {:.1f}s",
                     self.agent_name, attempt + 1, MAX_RETRIES, e, delay,
                 )
                 if attempt < MAX_RETRIES - 1:
@@ -134,7 +150,7 @@ class BaseAgent(ABC):
             except Exception as e:
                 delay = _BASE_DELAY * (2**attempt)
                 logger.error(
-                    "[%s] Unexpected error (attempt %d/%d): %s",
+                    "[{}] Unexpected error (attempt {}/{}): {}",
                     self.agent_name, attempt + 1, MAX_RETRIES, e,
                 )
                 if attempt < MAX_RETRIES - 1:
@@ -158,6 +174,11 @@ class BaseAgent(ABC):
         Args/Returns/Raises: 同 call_api
         """
         tokens = max_tokens or MAX_TOKENS
+        logger.debug(
+            "[{}] async_call_api: model={}, max_tokens={}, system={} chars, user={} chars",
+            self.agent_name, self.model_name, tokens, len(system), len(user),
+        )
+        start = time.time()
         sem = get_api_semaphore()
 
         for attempt in range(MAX_RETRIES):
@@ -169,12 +190,22 @@ class BaseAgent(ABC):
                         system=system,
                         messages=[{"role": "user", "content": user}],
                     )
-                    return resp.content[0].text
+                    elapsed = time.time() - start
+                    output_text = resp.content[0].text
+                    logger.info(
+                        "[{}] Async API call completed: model={}, attempt={}, "
+                        "input_tokens={}, output_tokens={}, elapsed={:.1f}s",
+                        self.agent_name, self.model_name, attempt + 1,
+                        getattr(resp.usage, "input_tokens", "?"),
+                        getattr(resp.usage, "output_tokens", "?"),
+                        elapsed,
+                    )
+                    return output_text
 
                 except anthropic.APIError as e:
                     delay = _BASE_DELAY * (2**attempt)
                     logger.warning(
-                        "[%s] API error (attempt %d/%d): %s — retry in %.1fs",
+                        "[{}] API error (attempt {}/{}): {} — retry in {:.1f}s",
                         self.agent_name, attempt + 1, MAX_RETRIES, e, delay,
                     )
                     if attempt < MAX_RETRIES - 1:
@@ -187,7 +218,7 @@ class BaseAgent(ABC):
                 except Exception as e:
                     delay = _BASE_DELAY * (2**attempt)
                     logger.error(
-                        "[%s] Unexpected error (attempt %d/%d): %s",
+                        "[{}] Unexpected error (attempt {}/{}): {}",
                         self.agent_name, attempt + 1, MAX_RETRIES, e,
                     )
                     if attempt < MAX_RETRIES - 1:
@@ -224,9 +255,16 @@ class BaseAgent(ABC):
         try:
             data = json.loads(text)
         except json.JSONDecodeError as e:
+            logger.error("[{}] JSON parse failed: {} | Raw preview: {}", self.agent_name, e, text[:200])
             raise ValueError(f"JSON parse failed: {e}\nRaw: {text[:500]}") from e
 
-        return model.model_validate(data)
+        try:
+            result = model.model_validate(data)
+        except Exception as e:
+            logger.error("[{}] Pydantic validation failed: {} | Data keys: {}", self.agent_name, e, list(data.keys()))
+            raise
+        logger.debug("[{}] Parsed JSON -> {} (fields: {})", self.agent_name, model.__name__, list(data.keys()))
+        return result
 
     @abstractmethod
     def run(self, **kwargs) -> BaseModel | str:

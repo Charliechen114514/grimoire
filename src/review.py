@@ -1,7 +1,6 @@
 """Review coordinator — 批量审核教程章节质量"""
 import argparse
 import json
-import logging
 import os
 import sys
 import tempfile
@@ -9,8 +8,7 @@ from pathlib import Path
 
 from src.agents.review import ChapterReview, ReviewAgent
 from src.config import WRITING_STYLE_PATH, book_data_dir, book_output_dir
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 _MAX_RETRIES = 2
 
@@ -50,9 +48,9 @@ def review_chapter(book_slug: str, chapter_idx: int) -> ChapterReview:
         except (ValueError, Exception) as e:
             last_error = e
             if attempt < _MAX_RETRIES:
-                logger.warning("Review Ch.%d attempt %d failed: %s — retrying", chapter_idx, attempt + 1, e)
+                logger.warning("Review Ch.{} attempt {} failed: {} — retrying", chapter_idx, attempt + 1, e)
             else:
-                logger.error("Review Ch.%d failed after %d attempts", chapter_idx, _MAX_RETRIES + 1)
+                logger.error("Review Ch.{} failed after {} attempts", chapter_idx, _MAX_RETRIES + 1)
 
     raise RuntimeError(f"Review Ch.{chapter_idx} failed: {last_error}")
 
@@ -75,7 +73,7 @@ def review_book(
         chapters = _find_existing_chapters(book_slug)
 
     if not chapters:
-        logger.warning("No chapters to review for %s", book_slug)
+        logger.warning("No chapters to review for {}", book_slug)
         return []
 
     writing_style = WRITING_STYLE_PATH.read_text(encoding="utf-8")
@@ -85,11 +83,11 @@ def review_book(
     for chapter_idx in chapters:
         tutorial_path = book_output_dir(book_slug) / f"ch{chapter_idx:02d}.md"
         if not tutorial_path.exists():
-            logger.warning("Ch.%d tutorial not found, skipping", chapter_idx)
+            logger.warning("Ch.{} tutorial not found, skipping", chapter_idx)
             continue
 
         tutorial_markdown = tutorial_path.read_text(encoding="utf-8")
-        logger.info("Reviewing Ch.%d/%d (%s)", chapter_idx, len(chapters), book_slug)
+        logger.info("Reviewing Ch.{}/{} ({})", chapter_idx, len(chapters), book_slug)
 
         result: ChapterReview | None = None
         last_error: Exception | None = None
@@ -105,10 +103,10 @@ def review_book(
             except (ValueError, Exception) as e:
                 last_error = e
                 if attempt < _MAX_RETRIES:
-                    logger.warning("Review Ch.%d attempt %d failed: %s — retrying", chapter_idx, attempt + 1, e)
+                    logger.warning("Review Ch.{} attempt {} failed: {} — retrying", chapter_idx, attempt + 1, e)
 
         if result is None:
-            logger.error("Review Ch.%d failed: %s", chapter_idx, last_error)
+            logger.error("Review Ch.{} failed: {}", chapter_idx, last_error)
             continue
 
         reviews.append(result)
@@ -163,7 +161,7 @@ def _save_report(reviews: list[ChapterReview], book_slug: str) -> None:
             os.unlink(tmp_path)
         raise
 
-    logger.info("Review report saved: %s", report_path)
+    logger.info("Review report saved: {}", report_path)
 
 
 def _print_summary(reviews: list[ChapterReview], book_slug: str) -> None:
@@ -206,10 +204,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
+    from src.log import setup_logging
+    setup_logging(verbose=False)
 
     chapters = args.chapters if args.chapters else None
 

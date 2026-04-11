@@ -1,11 +1,8 @@
 """ExerciseAgent — 基于知识点生成梯度练习题"""
-import logging
-
 from pydantic import BaseModel
 
 from src.agents.base_agent import BaseAgent
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 class Exercise(BaseModel):
@@ -58,7 +55,7 @@ class ExerciseAgent(BaseAgent):
         raw = self.call_api(system=system, user=user, max_tokens=4096)
         result = self.parse_json(raw, ExerciseOutput)
         logger.info(
-            "Generated %d exercises (difficulties: %s)",
+            "Generated {} exercises (difficulties: {})",
             len(result.exercises),
             [e.difficulty for e in result.exercises],
         )
@@ -83,7 +80,7 @@ class ExerciseAgent(BaseAgent):
         raw = await self.async_call_api(system=system, user=user, max_tokens=4096)
         result = self.parse_json(raw, ExerciseOutput)
         logger.info(
-            "Generated %d exercises (difficulties: %s)",
+            "Generated {} exercises (difficulties: {})",
             len(result.exercises),
             [e.difficulty for e in result.exercises],
         )

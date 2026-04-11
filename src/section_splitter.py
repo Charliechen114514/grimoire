@@ -1,11 +1,9 @@
 """Section splitter — 自适应层级分节：根据目标尺寸自动选择 L2/L3/L4 切割深度"""
-import logging
 import re
 from dataclasses import dataclass
 
 from src.config import VERBOSE_MIN_SECTION_CHARS, VERBOSE_TARGET_MAX_CHARS
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 @dataclass
@@ -88,7 +86,7 @@ def _collect_toc_subtree(
                 break
 
     if ch_start_idx is None:
-        logger.warning("Chapter %d not found in TOC", chapter_idx)
+        logger.warning("Chapter {} not found in TOC", chapter_idx)
         return []
 
     subtree: list[tuple[int, str, int]] = []
@@ -124,7 +122,7 @@ def _split_text_by_titles(
         if offset >= 0:
             boundaries.append((title, offset))
         else:
-            logger.warning("Title '%s' not found in text, skipping", title[:60])
+            logger.warning("Title '{}' not found in text, skipping", title[:60])
 
     if not boundaries:
         return [Section(
@@ -222,7 +220,7 @@ def split_chapter_into_sections(
         Section 列表。TOC 缺失或无条目时返回单节（整章）。
     """
     if not toc:
-        logger.info("No TOC, chapter %d as single section", chapter_idx)
+        logger.info("No TOC, chapter {} as single section", chapter_idx)
         return [Section(
             title=f"Chapter {chapter_idx}",
             text=chapter_text,
@@ -233,7 +231,7 @@ def split_chapter_into_sections(
 
     subtree = _collect_toc_subtree(toc, chapter_idx)
     if not subtree:
-        logger.info("No TOC subtree for chapter %d", chapter_idx)
+        logger.info("No TOC subtree for chapter {}", chapter_idx)
         return [Section(
             title=f"Chapter {chapter_idx}",
             text=chapter_text,
@@ -245,7 +243,7 @@ def split_chapter_into_sections(
     # ── 第一轮：用 L2 切分 ──
     l2_entries = [(title, page) for level, title, page in subtree if level == 2]
     if not l2_entries:
-        logger.info("No L2 entries for chapter %d", chapter_idx)
+        logger.info("No L2 entries for chapter {}", chapter_idx)
         return [Section(
             title=f"Chapter {chapter_idx}",
             text=chapter_text,
@@ -264,7 +262,7 @@ def split_chapter_into_sections(
             l3_entries = _find_sub_entries(subtree, sec.title, sec.depth)
             if l3_entries:
                 logger.info(
-                    "Expanding large section '%s' (%d chars) into %d L3 subsections",
+                    "Expanding large section '{}' ({} chars) into {} L3 subsections",
                     sec.title[:50], len(sec.text), len(l3_entries),
                 )
                 l3_sections = _split_text_by_titles(sec.text, l3_entries, default_depth=3)
@@ -273,7 +271,7 @@ def split_chapter_into_sections(
                     continue
             # 无 L3 子条目或全部未找到，保留原节
             logger.warning(
-                "Large section '%s' (%d chars) has no usable L3 entries, keeping as-is",
+                "Large section '{}' ({} chars) has no usable L3 entries, keeping as-is",
                 sec.title[:50], len(sec.text),
             )
             final_sections.append(sec)
@@ -293,7 +291,7 @@ def split_chapter_into_sections(
                 depth=prev.depth,
             )
             logger.debug(
-                "Merged short section '%s' (%d chars) into '%s'",
+                "Merged short section '{}' ({} chars) into '{}'",
                 sec.title[:40], len(sec.text), prev.title[:40],
             )
         else:
@@ -301,7 +299,7 @@ def split_chapter_into_sections(
 
     for sec in merged:
         logger.info(
-            "Section '%s' [L%d]: %d chars",
+            "Section '{}' [L{}]: {} chars",
             sec.title[:60], sec.depth, len(sec.text),
         )
 

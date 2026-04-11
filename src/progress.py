@@ -1,6 +1,5 @@
 """Progress tracking for batch chapter processing."""
 import json
-import logging
 import os
 import tempfile
 from datetime import datetime, timezone
@@ -8,8 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from src.config import book_data_dir
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 def load_progress(book_slug: str) -> dict[str, Any]:
@@ -26,7 +24,7 @@ def load_progress(book_slug: str) -> dict[str, Any]:
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
     done_count = sum(1 for k, v in data.items() if k.isdigit() and v == "done")
-    logger.info("Loaded progress for %s: %d chapters done", book_slug, done_count)
+    logger.info("Loaded progress for {}: {} chapters done", book_slug, done_count)
     return data
 
 
@@ -50,7 +48,7 @@ def save_progress(progress: dict[str, Any], book_slug: str) -> None:
             os.unlink(tmp_path)
         raise
 
-    logger.info("Progress saved for %s", book_slug)
+    logger.info("Progress saved for {}", book_slug)
 
 
 def init_progress(book_slug: str, total_chapters: int) -> dict[str, Any]:

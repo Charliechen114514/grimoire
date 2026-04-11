@@ -8,22 +8,16 @@ Usage:
     python -m cli all     books/book.pdf --slug MYBOOK [--site-name "My Book"]
 """
 import argparse
-import logging
 import sys
 from pathlib import Path
 
-
-def _setup_logging(verbose: bool) -> None:
-    logging.basicConfig(
-        level=logging.DEBUG if verbose else logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
+from src.log import setup_logging
 
 
 def _cmd_parse(args: argparse.Namespace) -> None:
     from src.pdf_parser import save_chapters_raw, split_book
 
-    _setup_logging(args.verbose)
+    setup_logging(args.verbose)
     pdf_path = Path(args.pdf)
     if not pdf_path.exists():
         print(f"Error: file not found: {pdf_path}", file=sys.stderr)
@@ -41,7 +35,7 @@ def _cmd_parse(args: argparse.Namespace) -> None:
 def _cmd_batch(args: argparse.Namespace) -> None:
     from src.batch import run_batch
 
-    _setup_logging(args.verbose)
+    setup_logging(args.verbose)
     try:
         paths = run_batch(
             book_slug=args.book_slug,
@@ -50,6 +44,10 @@ def _cmd_batch(args: argparse.Namespace) -> None:
             max_workers=getattr(args, "workers", 1),
             model=getattr(args, "model", None),
         )
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print(f"Hint: run 'python -m cli parse books/{args.book_slug}.pdf --slug {args.book_slug}' first.", file=sys.stderr)
+        sys.exit(1)
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run to resume.")
         sys.exit(1)
@@ -62,11 +60,15 @@ def _cmd_batch(args: argparse.Namespace) -> None:
 def _cmd_review(args: argparse.Namespace) -> None:
     from src.review import review_book
 
-    _setup_logging(args.verbose)
+    setup_logging(args.verbose)
     chapters = args.chapters if args.chapters else None
 
     try:
         reviews = review_book(book_slug=args.book_slug, chapters=chapters)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print(f"Hint: run 'python -m cli batch {args.book_slug}' first to generate tutorials.", file=sys.stderr)
+        sys.exit(1)
     except KeyboardInterrupt:
         print("Interrupted.")
         sys.exit(1)
@@ -79,8 +81,13 @@ def _cmd_review(args: argparse.Namespace) -> None:
 def _cmd_package(args: argparse.Namespace) -> None:
     from src.packager import package
 
-    _setup_logging(args.verbose)
-    config_path = package(args.book_slug, site_name=args.site_name)
+    setup_logging(args.verbose)
+    try:
+        config_path = package(args.book_slug, site_name=args.site_name)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        print(f"Hint: run 'python -m cli batch {args.book_slug}' first to generate tutorials.", file=sys.stderr)
+        sys.exit(1)
     print(f"\nGenerated mkdocs config: {config_path}")
     print(f"Run: cd {config_path.parent} && mkdocs serve")
 
@@ -92,7 +99,7 @@ def _cmd_all(args: argparse.Namespace) -> None:
     from src.pdf_parser import save_chapters_raw, split_book
     from src.review import review_book
 
-    _setup_logging(args.verbose)
+    setup_logging(args.verbose)
 
     pdf_path = Path(args.pdf)
     slug = args.slug

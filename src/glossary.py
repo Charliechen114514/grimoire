@@ -1,14 +1,12 @@
 """Cross-chapter glossary management for concept consistency."""
 import json
-import logging
 import os
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from src.config import GLOSSARY_MAX_TOKENS, book_data_dir
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 # Rough token estimate: 1 token ~= 4 chars for English + Chinese mixed content
 _CHARS_PER_TOKEN = 4
@@ -26,7 +24,7 @@ def load_glossary(book_slug: str) -> dict[str, dict[str, Any]]:
     if not path.exists():
         return {}
     data = json.loads(path.read_text(encoding="utf-8"))
-    logger.info("Loaded glossary for %s: %d concepts", book_slug, len(data))
+    logger.info("Loaded glossary for {}: {} concepts", book_slug, len(data))
     return data
 
 
@@ -45,7 +43,7 @@ def save_glossary(glossary: dict[str, dict[str, Any]], book_slug: str) -> None:
             os.unlink(tmp_path)
         raise
 
-    logger.info("Glossary saved for %s: %d concepts", book_slug, len(glossary))
+    logger.info("Glossary saved for {}: {} concepts", book_slug, len(glossary))
 
 
 def merge_concepts(
@@ -76,7 +74,7 @@ def merge_concepts(
             }
             added += 1
     logger.info(
-        "Merged %d new concepts from Ch.%d (total: %d)",
+        "Merged {} new concepts from Ch.{} (total: {})",
         added, chapter_idx, len(glossary),
     )
     return glossary
@@ -121,7 +119,7 @@ def trim_to_budget(glossary: dict[str, dict[str, Any]]) -> dict[str, dict[str, A
             break
 
     logger.info(
-        "Trimmed glossary from %d to %d concepts (~%d tokens)",
+        "Trimmed glossary from {} to {} concepts (~{} tokens)",
         len(glossary), len(result), estimate_tokens(to_prompt_text(result)),
     )
     return result

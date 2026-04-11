@@ -1,12 +1,10 @@
 """CLI wrapper for PDF parsing (Phase 1)."""
 import argparse
-import logging
 import sys
 from pathlib import Path
 
+from src.log import logger
 from src.pdf_parser import save_chapters_raw, split_book
-
-logger = logging.getLogger(__name__)
 
 
 def main() -> None:
@@ -20,10 +18,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(levelname)s %(name)s: %(message)s",
-    )
+    from src.log import setup_logging
+    setup_logging(verbose=args.verbose)
 
     pdf_path: Path = args.pdf
     if not pdf_path.exists():

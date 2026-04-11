@@ -2,7 +2,6 @@
 import argparse
 import asyncio
 import json
-import logging
 import sys
 import time
 from pathlib import Path
@@ -10,10 +9,9 @@ from typing import Any
 
 from src.config import book_data_dir
 from src.glossary import load_glossary, merge_concepts, save_glossary, trim_to_budget
+from src.log import logger
 from src.orchestrator import async_run_chapter_pipeline
 from src.progress import init_progress, init_progress_fresh, mark_done, save_progress
-
-logger = logging.getLogger(__name__)
 
 
 def load_chapters_raw(book_slug: str) -> dict[str, Any]:
@@ -34,7 +32,7 @@ def load_chapters_raw(book_slug: str) -> dict[str, Any]:
         )
     data = json.loads(path.read_text(encoding="utf-8"))
     logger.info(
-        "Loaded %s: %d chapters", path, data["metadata"]["total_chapters"],
+        "Loaded {}: {} chapters", path, data["metadata"]["total_chapters"],
     )
     return data
 
@@ -63,13 +61,18 @@ async def async_run_batch(
     """
     raw = load_chapters_raw(book_slug)
     total_chapters = raw["metadata"]["total_chapters"]
+    batch_start = time.time()
+    logger.info(
+        "Batch starting: book={}, chapters={}, workers={}, verbose={}, resume={}, model={}",
+        book_slug, total_chapters, max_workers, verbose_mode, resume, model,
+    )
 
     # 从 metadata 中加载 TOC（verbose 模式需要）
     toc_raw = raw["metadata"].get("toc")
     toc = None
     if toc_raw and verbose_mode:
         toc = [(e["level"], e["title"], e["page"]) for e in toc_raw]
-        logger.info("Loaded TOC: %d entries for verbose mode", len(toc))
+        logger.info("Loaded TOC: {} entries for verbose mode", len(toc))
     elif verbose_mode and not toc_raw:
         logger.warning(
             "Verbose mode requested but no TOC in chapters_raw.json. "
@@ -92,6 +95,7 @@ async def async_run_batch(
 
     # Load existing glossary and snapshot
     glossary = load_glossary(book_slug)
+    logger.info("Loaded glossary: {} concepts", len(glossary))
     glossary_lock = asyncio.Lock()
     semaphore = asyncio.Semaphore(max_workers)
 
@@ -105,11 +109,11 @@ async def async_run_batch(
         async with semaphore:
             # 再次检查状态（可能在等待信号量时已被其他任务处理）
             if resume and progress.get(chapter_key) == "done":
-                logger.info("Skipping Ch.%d (already done)", chapter_idx)
+                logger.info("Skipping Ch.{} (already done)", chapter_idx)
                 return None
 
             logger.info(
-                "=== Processing Ch.%d/%d (%s) ===",
+                "=== Processing Ch.{}/{} ({}) ===",
                 chapter_idx, total_chapters, book_slug,
             )
             start_time = time.time()
@@ -128,14 +132,14 @@ async def async_run_batch(
                     model=model,
                 )
             except Exception as e:
-                logger.error("Ch.%d failed: %s", chapter_idx, e)
+                logger.error("Ch.{} failed after {:.1f}s: {}", chapter_idx, time.time() - start_time, e)
                 progress[chapter_key] = "failed"
                 save_progress(progress, book_slug)
                 return None
 
             elapsed = time.time() - start_time
             logger.info(
-                "Ch.%d done in %.1fs -> %s", chapter_idx, elapsed, result.output_path,
+                "Ch.{} done in {:.1f}s -> {}", chapter_idx, elapsed, result.output_path,
             )
 
             # 合并新概念到共享 glossary（锁保护）
@@ -155,8 +159,8 @@ async def async_run_batch(
     await asyncio.gather(*tasks)
 
     logger.info(
-        "=== Batch complete: %d/%d chapters processed ===",
-        len(completed), total_chapters,
+        "=== Batch complete: {}/{} chapters processed ({:.1f}s) ===",
+        len(completed), total_chapters, time.time() - batch_start,
     )
     return completed
 
@@ -205,10 +209,8 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
+    from src.log import setup_logging
+    setup_logging(verbose=False)
 
     try:
         paths = run_batch(

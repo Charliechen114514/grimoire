@@ -1,13 +1,11 @@
 """ConceptAgent — 从章节原文中提取核心知识点"""
 import json
-import logging
 from typing import Any
 
 from pydantic import BaseModel
 
 from src.agents.base_agent import BaseAgent
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 class Concept(BaseModel):
@@ -68,7 +66,7 @@ class ConceptAgent(BaseAgent):
         raw = self.call_api(system=system, user=user, max_tokens=4096)
         result = self.parse_json(raw, ConceptOutput)
         logger.info(
-            "Extracted %d concepts (%d new)",
+            "Extracted {} concepts ({} new)",
             len(result.concepts),
             sum(1 for c in result.concepts if c.is_new),
         )
@@ -100,7 +98,7 @@ class ConceptAgent(BaseAgent):
         raw = await self.async_call_api(system=system, user=user, max_tokens=4096)
         result = self.parse_json(raw, ConceptOutput)
         logger.info(
-            "Extracted %d concepts (%d new)",
+            "Extracted {} concepts ({} new)",
             len(result.concepts),
             sum(1 for c in result.concepts if c.is_new),
         )

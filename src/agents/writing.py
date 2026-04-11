@@ -1,11 +1,9 @@
 """WritingAgent — 基于章节原文和知识点生成教程正文"""
 import json
-import logging
 
 from src.agents.base_agent import BaseAgent
 from src.config import VERBOSE_MAX_TOKENS, WRITING_STYLE_PATH
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 class WritingAgent(BaseAgent):
@@ -43,7 +41,7 @@ class WritingAgent(BaseAgent):
         )
 
         raw = self.call_api(system=system, user=user)
-        logger.info("WritingAgent produced %d chars", len(raw))
+        logger.info("WritingAgent produced {} chars", len(raw))
         return raw
 
     async def async_run(
@@ -65,7 +63,7 @@ class WritingAgent(BaseAgent):
         )
 
         raw = await self.async_call_api(system=system, user=user)
-        logger.info("WritingAgent produced %d chars", len(raw))
+        logger.info("WritingAgent produced {} chars", len(raw))
         return raw
 
     def run_verbose(
@@ -131,7 +129,7 @@ class WritingAgent(BaseAgent):
 
         raw = self.call_api(system=system, user=user, max_tokens=VERBOSE_MAX_TOKENS)
         logger.info(
-            "WritingAgent (verbose) section %d/%d '%s': %d chars",
+            "WritingAgent (verbose) section {}/{} '{}': {} chars",
             section_idx + 1, total_sections, section_title[:40], len(raw),
         )
         return raw
@@ -182,7 +180,7 @@ class WritingAgent(BaseAgent):
 
         raw = await self.async_call_api(system=system, user=user, max_tokens=VERBOSE_MAX_TOKENS)
         logger.info(
-            "WritingAgent (verbose) section %d/%d '%s': %d chars",
+            "WritingAgent (verbose) section {}/{} '{}': {} chars",
             section_idx + 1, total_sections, section_title[:40], len(raw),
         )
         return raw

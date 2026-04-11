@@ -1,13 +1,11 @@
 """Packager — 将教程输出打包为 mkdocs 站点"""
 import argparse
-import logging
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
 from src.config import OUTPUT_DIR
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 def package(book_slug: str, site_name: str | None = None) -> Path:
@@ -51,7 +49,7 @@ def package(book_slug: str, site_name: str | None = None) -> Path:
     # 生成 mkdocs.yml
     config_path = _generate_mkdocs_config(site_name, chapters, book_output)
 
-    logger.info("Packaged %d chapters -> %s", len(chapters), docs_dir)
+    logger.info("Packaged {} chapters -> {}", len(chapters), docs_dir)
     return config_path
 
 
@@ -104,7 +102,7 @@ def _copy_tutorials(
         title = _extract_title(dest_index)
         chapters.append((chapter_idx, title, dest_index, dest_secs))
         logger.info(
-            "Copied Ch.%d: %s (%d sections)",
+            "Copied Ch.{}: {} ({} sections)",
             chapter_idx, title, len(dest_secs),
         )
 
@@ -152,7 +150,7 @@ def _generate_index(
 
     index_path = docs_dir / "index.md"
     index_path.write_text("\n".join(lines), encoding="utf-8")
-    logger.info("Generated index: %s", index_path)
+    logger.info("Generated index: {}", index_path)
     return index_path
 
 
@@ -214,7 +212,7 @@ nav:
 
     config_path = output_dir / "mkdocs.yml"
     config_path.write_text(config, encoding="utf-8")
-    logger.info("Generated mkdocs config: %s", config_path)
+    logger.info("Generated mkdocs config: {}", config_path)
     return config_path
 
 
@@ -225,10 +223,8 @@ def main() -> None:
     parser.add_argument("--site-name", default=None, help="Site display name")
     args = parser.parse_args()
 
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-    )
+    from src.log import setup_logging
+    setup_logging(verbose=False)
 
     config_path = package(args.book_slug, site_name=args.site_name)
     print(f"\nGenerated mkdocs config: {config_path}")

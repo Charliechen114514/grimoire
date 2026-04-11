@@ -1,11 +1,8 @@
 """ReviewAgent — 审核教程章节的风格一致性、难度曲线、概念密度"""
-import logging
-
 from pydantic import BaseModel
 
 from src.agents.base_agent import BaseAgent
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 class DimensionScore(BaseModel):
@@ -70,7 +67,7 @@ class ReviewAgent(BaseAgent):
         result = self.parse_json(raw, ChapterReview)
         passed = "PASS" if result.overall_pass else "FAIL"
         logger.info(
-            "Review Ch.%d: %s (scores: %s, issues: %d)",
+            "Review Ch.{}: {} (scores: {}, issues: {})",
             chapter_idx,
             passed,
             [(s.dimension, s.score) for s in result.scores],

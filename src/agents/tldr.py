@@ -1,9 +1,6 @@
 """TLDRAgent — 从教程正文中提炼核心要点"""
-import logging
-
 from src.agents.base_agent import BaseAgent
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 class TLDRAgent(BaseAgent):
@@ -32,7 +29,7 @@ class TLDRAgent(BaseAgent):
         )
 
         raw = self.call_api(system=system, user=user, max_tokens=2048)
-        logger.info("TLDRAgent produced %d chars", len(raw))
+        logger.info("TLDRAgent produced {} chars", len(raw))
         return raw
 
     async def async_run(self, writing_output: str, chapter_idx: int) -> str:
@@ -46,5 +43,5 @@ class TLDRAgent(BaseAgent):
         )
 
         raw = await self.async_call_api(system=system, user=user, max_tokens=2048)
-        logger.info("TLDRAgent produced %d chars", len(raw))
+        logger.info("TLDRAgent produced {} chars", len(raw))
         return raw

@@ -1,6 +1,5 @@
 """PDF 解析核心模块 — pymupdf 提取文本 + TOC 章节定位"""
 import json
-import logging
 import os
 import re
 import tempfile
@@ -10,8 +9,7 @@ from pathlib import Path
 import pymupdf
 
 from src.config import book_data_dir
-
-logger = logging.getLogger(__name__)
+from src.log import logger
 
 
 _SKIP_L1 = re.compile(
@@ -109,7 +107,7 @@ def _extract_chapters_from_pdf(
         chapter_entries = _extract_chapter_toc(toc)
 
         if not chapter_entries:
-            logger.warning("No chapter entries found in TOC for %s", pdf_path)
+            logger.warning("No chapter entries found in TOC for {}", pdf_path)
             return {}, toc
 
         chapters: dict[int, str] = {}
@@ -123,12 +121,12 @@ def _extract_chapters_from_pdf(
             text = _extract_page_text(doc, start_page, end_page)
             chapters[ch_num] = text
             logger.debug(
-                "Chapter %d '%s': pages %d-%d, %d chars",
+                "Chapter {} '{}': pages {}-{}, {} chars",
                 ch_num, title, start_page, end_page - 1, len(text),
             )
 
         logger.info(
-            "Extracted %d chapters from %s: %s",
+            "Extracted {} chapters from {}: {}",
             len(chapters), pdf_path.name, sorted(chapters.keys()),
         )
         return chapters, toc
@@ -160,7 +158,7 @@ def parse_chapter(pdf_path: Path, chapter_n: int) -> str:
         available = sorted(chapters.keys())
         raise ValueError(f"Chapter {chapter_n} not found. Available: {available}")
 
-    logger.info("Extracted chapter %d: %d chars", chapter_n, len(chapters[chapter_n]))
+    logger.info("Extracted chapter {}: {} chars", chapter_n, len(chapters[chapter_n]))
     return chapters[chapter_n]
 
 
@@ -183,9 +181,9 @@ def split_book(
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-    logger.info("Splitting book '%s': %s", book_slug, pdf_path)
+    logger.info("Splitting book '{}': {}", book_slug, pdf_path)
     chapters, toc = _extract_chapters_from_pdf(pdf_path)
-    logger.info("Book '%s': %d chapters extracted", book_slug, len(chapters))
+    logger.info("Book '{}': {} chapters extracted", book_slug, len(chapters))
     return chapters, toc
 
 
@@ -236,5 +234,5 @@ def save_chapters_raw(
             os.unlink(tmp_path)
         raise
 
-    logger.info("Saved chapters_raw.json: %d chapters -> %s", len(chapters), output_path)
+    logger.info("Saved chapters_raw.json: {} chapters -> {}", len(chapters), output_path)
     return output_path
