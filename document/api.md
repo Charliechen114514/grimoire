@@ -49,6 +49,28 @@ python -m cli batch MYBOOK --no-resume  # Start fresh
 
 Progress is saved after each chapter — safe to interrupt and resume.
 
+#### Verbose Mode / 详细模式
+
+Add `--verbose-mode` for faithful, detailed rewrites that preserve nearly all technical content:
+
+```bash
+python -m cli batch MYBOOK --verbose-mode
+python -m cli batch MYBOOK --verbose-mode --no-resume  # Fresh start in verbose mode
+```
+
+Verbose mode splits each chapter into sections based on the PDF's TOC hierarchy, then rewrites each section separately. Output is one file per section (`ch{NN}_{S}.md`) plus an index page (`ch{NN}.md`).
+
+> **Prerequisite**: Requires TOC data in `chapters_raw.json`. If you see a warning about missing TOC, re-run Phase 1:
+> ```bash
+> python -m cli parse books/your-textbook.pdf --slug MYBOOK
+> ```
+
+This also works with the `all` command:
+
+```bash
+python -m cli all books/textbook.pdf --slug MYBOOK --verbose-mode
+```
+
 ### Phase 3 (Optional): Quality Review / 质量审核
 
 ```bash

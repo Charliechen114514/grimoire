@@ -50,6 +50,21 @@ python -m cli batch MYBOOK --no-resume  # 从头开始
 
 每章经过 4 个 Agent：Concept → Writing → Exercise → TLDR。可随时 Ctrl+C 中断，重跑自动跳过已完成章节。
 
+#### Verbose 模式（忠于原文的详细改写）
+
+默认模式会生成精简版教程（~20% 原文篇幅）。如果需要保留原文几乎所有技术细节，启用 `--verbose-mode`：
+
+```bash
+python -m cli batch MYBOOK --verbose-mode
+```
+
+Verbose 模式会：
+- 利用 PDF TOC 的层级结构**自适应分节**（L2 不够就展开 L3/L4）
+- 逐节调用 LLM 进行**忠实改写**（非压缩总结）
+- 每节输出为独立文件 `ch{x}_{y}.md`，并生成 `ch{x}.md` 索引页
+
+> **注意**：Verose 模式需要 `chapters_raw.json` 包含 TOC 数据。如果已有数据缺少 TOC，请重新运行 `parse` 命令。
+
 ### 6. 打包为网站
 
 ```bash
@@ -127,6 +142,21 @@ python -m cli batch MYBOOK --no-resume  # Start fresh
 ```
 
 Each chapter goes through 4 agents: Concept → Writing → Exercise → TLDR. Safe to Ctrl+C and resume later.
+
+#### Verbose Mode (faithful detailed rewrite)
+
+Default mode produces condensed tutorials (~20% of original length). For preserving nearly all technical details, enable `--verbose-mode`:
+
+```bash
+python -m cli batch MYBOOK --verbose-mode
+```
+
+Verbose mode:
+- **Adaptive section splitting** using PDF TOC hierarchy (L2 → L3 → L4 as needed)
+- **Faithful rewrite** per section (not a summary)
+- Outputs each section as a separate file `ch{x}_{y}.md` with a `ch{x}.md` index page
+
+> **Note**: Verbose mode requires TOC data in `chapters_raw.json`. Re-run `parse` if your data lacks TOC.
 
 ### 6. Package as Website
 
