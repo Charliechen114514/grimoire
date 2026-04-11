@@ -9,8 +9,8 @@ logger = logging.getLogger(__name__)
 class TLDRAgent(BaseAgent):
     """从 WritingAgent 输出中提炼不超过 5 条核心要点。"""
 
-    def __init__(self) -> None:
-        super().__init__("tldr")
+    def __init__(self, model: str | None = None) -> None:
+        super().__init__("tldr", model=model)
 
     def run(self, writing_output: str, chapter_idx: int) -> str:
         """

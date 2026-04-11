@@ -35,6 +35,7 @@ def run_chapter_pipeline(
     glossary: dict[str, Any] | None = None,
     verbose_mode: bool = False,
     toc: list[tuple[int, str, int]] | None = None,
+    model: str | None = None,
 ) -> ChapterResult:
     """
     串联 4 个 Agent 处理单个章节。
@@ -48,6 +49,7 @@ def run_chapter_pipeline(
         glossary: 已有词汇表（Phase 3 用）
         verbose_mode: 是否启用 verbose 模式（自适应分节忠实改写）
         toc: pymupdf 原始 TOC，verbose 模式用于分节
+        model: 模型名称或 alias（如 "haiku"/"sonnet"/"opus"）
 
     Returns:
         ChapterResult 包含输出文件路径和概念提取结果
@@ -59,7 +61,7 @@ def run_chapter_pipeline(
     logger.info("=== Pipeline started [%s]: %s Ch.%d ===", mode_label, book_slug, chapter_idx)
 
     # Step 1: ConceptAgent
-    concept_agent = ConceptAgent()
+    concept_agent = ConceptAgent(model=model)
     concepts_result = _run_with_retry(
         lambda: concept_agent.run(
             chapter_text=chapter_text,
@@ -72,7 +74,7 @@ def run_chapter_pipeline(
     logger.info("Concepts: %d extracted", len(concepts_result.concepts))
 
     # Step 2: WritingAgent（依赖 concepts）
-    writing_agent = WritingAgent()
+    writing_agent = WritingAgent(model=model)
     if verbose_mode:
         section_results, sections = _run_verbose_writing(
             writing_agent=writing_agent,
@@ -97,7 +99,7 @@ def run_chapter_pipeline(
     logger.info("Writing: %d chars", len(writing_result))
 
     # Step 3: ExerciseAgent（依赖 concepts）
-    exercise_agent = ExerciseAgent()
+    exercise_agent = ExerciseAgent(model=model)
     exercise_result = _run_with_retry(
         lambda: exercise_agent.run(
             chapter_text=chapter_text,
@@ -109,7 +111,7 @@ def run_chapter_pipeline(
     logger.info("Exercises: %d generated", len(exercise_result.exercises))
 
     # Step 4: TLDRAgent（依赖 writing output）
-    tldr_agent = TLDRAgent()
+    tldr_agent = TLDRAgent(model=model)
     tldr_result = _run_with_retry(
         lambda: tldr_agent.run(writing_output=writing_result, chapter_idx=chapter_idx),
         agent_name="TLDRAgent",
@@ -188,6 +190,7 @@ async def async_run_chapter_pipeline(
     glossary: dict[str, Any] | None = None,
     verbose_mode: bool = False,
     toc: list[tuple[int, str, int]] | None = None,
+    model: str | None = None,
 ) -> ChapterResult:
     """
     异步串联 4 个 Agent 处理单个章节。
@@ -199,7 +202,7 @@ async def async_run_chapter_pipeline(
     logger.info("=== Async pipeline started [%s]: %s Ch.%d ===", mode_label, book_slug, chapter_idx)
 
     # Step 1: ConceptAgent
-    concept_agent = ConceptAgent()
+    concept_agent = ConceptAgent(model=model)
     concepts_result = await _async_run_with_retry(
         lambda: concept_agent.async_run(
             chapter_text=chapter_text,
@@ -212,8 +215,8 @@ async def async_run_chapter_pipeline(
     logger.info("Concepts: %d extracted", len(concepts_result.concepts))
 
     # Step 2+3: Writing + Exercise 并行
-    writing_agent = WritingAgent()
-    exercise_agent = ExerciseAgent()
+    writing_agent = WritingAgent(model=model)
+    exercise_agent = ExerciseAgent(model=model)
 
     if verbose_mode:
         # Verbose: 写作保持串行（previous_summary 依赖），但与 Exercise 并行
@@ -263,7 +266,7 @@ async def async_run_chapter_pipeline(
     logger.info("Exercises: %d generated", len(exercise_result.exercises))
 
     # Step 4: TLDRAgent（依赖 writing output）
-    tldr_agent = TLDRAgent()
+    tldr_agent = TLDRAgent(model=model)
     tldr_result = await _async_run_with_retry(
         lambda: tldr_agent.async_run(writing_output=writing_result, chapter_idx=chapter_idx),
         agent_name="TLDRAgent",

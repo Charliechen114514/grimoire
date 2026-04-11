@@ -22,6 +22,23 @@ MAX_TOKENS: int = 8192
 MAX_RETRIES: int = 3
 MAX_CONCURRENT_CHAPTERS: int = int(os.getenv("MAX_CONCURRENT_CHAPTERS", "4"))
 
+# ── Model aliases ──
+MODEL_ALIASES: dict[str, str] = {
+    "haiku":  os.getenv("ANTHROPIC_DEFAULT_HAIKU_MODEL",  "claude-haiku-4-5-20251001"),
+    "sonnet": os.getenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "claude-sonnet-4-6-20250514"),
+    "opus":   os.getenv("ANTHROPIC_DEFAULT_OPUS_MODEL",   "claude-opus-4-6-20250514"),
+}
+DEFAULT_MODEL_TIER: str = os.getenv("GRIMOIRE_MODEL", "sonnet")
+
+
+def resolve_model(model_override: str | None = None) -> str:
+    """
+    解析模型名称。优先级：CLI --model > GRIMOIRE_MODEL env > 默认 sonnet。
+    支持 alias (haiku/sonnet/opus) 或直接传模型名。
+    """
+    tier = model_override or DEFAULT_MODEL_TIER
+    return MODEL_ALIASES.get(tier, tier)
+
 # ── Token 预算 ──
 GLOSSARY_MAX_TOKENS: int = 3000
 

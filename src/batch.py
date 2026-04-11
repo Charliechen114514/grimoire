@@ -44,6 +44,7 @@ async def async_run_batch(
     resume: bool = True,
     verbose_mode: bool = False,
     max_workers: int = 4,
+    model: str | None = None,
 ) -> list[Path]:
     """
     异步批量处理所有章节，支持章节级并行。
@@ -124,6 +125,7 @@ async def async_run_batch(
                     glossary=trimmed,
                     verbose_mode=verbose_mode,
                     toc=toc,
+                    model=model,
                 )
             except Exception as e:
                 logger.error("Ch.%d failed: %s", chapter_idx, e)
@@ -164,6 +166,7 @@ def run_batch(
     resume: bool = True,
     verbose_mode: bool = False,
     max_workers: int = 1,
+    model: str | None = None,
 ) -> list[Path]:
     """
     批量处理所有章节的同步入口。
@@ -182,6 +185,7 @@ def run_batch(
         resume=resume,
         verbose_mode=verbose_mode,
         max_workers=max_workers,
+        model=model,
     ))
 
 

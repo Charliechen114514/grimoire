@@ -16,7 +16,6 @@ from src.config import (
     ANTHROPIC_BASE_URL,
     MAX_RETRIES,
     MAX_TOKENS,
-    MODEL_NAME,
     PROMPTS_DIR,
 )
 
@@ -42,10 +41,17 @@ def get_api_semaphore() -> asyncio.Semaphore:
 class BaseAgent(ABC):
     """所有 Agent 的基类，提供 prompt 加载、API 调用、JSON 解析能力。"""
 
-    def __init__(self, agent_name: str) -> None:
+    def __init__(self, agent_name: str, model: str | None = None) -> None:
         self.agent_name = agent_name
+        self._model = model  # alias 或原始名，在 call_api 时通过 resolve_model 解析
         self._client: anthropic.Anthropic | None = None
         self._async_client: anthropic.AsyncAnthropic | None = None
+
+    @property
+    def model_name(self) -> str:
+        """解析后的实际模型名称。优先级：CLI --model > GRIMOIRE_MODEL env > 默认 sonnet。"""
+        from src.config import resolve_model
+        return resolve_model(self._model)
 
     @property
     def client(self) -> anthropic.Anthropic:
@@ -105,7 +111,7 @@ class BaseAgent(ABC):
         for attempt in range(MAX_RETRIES):
             try:
                 resp = self.client.messages.create(
-                    model=MODEL_NAME,
+                    model=self.model_name,
                     max_tokens=tokens,
                     system=system,
                     messages=[{"role": "user", "content": user}],
@@ -158,7 +164,7 @@ class BaseAgent(ABC):
             async with sem:
                 try:
                     resp = await self.async_client.messages.create(
-                        model=MODEL_NAME,
+                        model=self.model_name,
                         max_tokens=tokens,
                         system=system,
                         messages=[{"role": "user", "content": user}],

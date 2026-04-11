@@ -16,13 +16,12 @@
   │  Phase 2: Batch Generate  (python -m cli batch)  │
   │                                                   │
   │  Per-chapter pipeline:                            │
-  │    ConceptAgent ──► WritingAgent                  │
-  │         │               │                         │
-  │    ExerciseAgent ◄──────┘                         │
-  │         │                                         │
-  │    TLDRAgent ──► merge output                     │
+  │    ConceptAgent ──► WritingAgent ──► TLDRAgent    │
+  │         └─────────► ExerciseAgent ────┘           │
+  │         (Writing + Exercise run in parallel)      │
   │                                                   │
-  │  Cross-chapter glossary accumulation              │
+  │  --workers N: N chapters processed concurrently   │
+  │  Cross-chapter glossary (snapshot + late merge)   │
   └──────────────────────────────────────────────────┘
       │
       ├──── [Optional] Review: python -m cli review
@@ -39,8 +38,8 @@
 | Agent | Description |
 |---|---|
 | **ConceptAgent** | Extracts 10-25 core concepts per chapter, tracks new vs. recurring concepts via cross-chapter glossary |
-| **WritingAgent** | Generates tutorial body in the configured persona style (default: Chinese "engineer blogger"). Supports **verbose mode** for section-by-section faithful rewriting. |
-| **ExerciseAgent** | Produces 3-5 leveled exercises (understanding / application / thinking) with answers |
+| **WritingAgent** | Generates tutorial body in the configured persona style (default: Chinese "engineer blogger"). Supports **verbose mode** for section-by-section faithful rewriting. Runs in parallel with ExerciseAgent after concepts are extracted. |
+| **ExerciseAgent** | Produces 3-5 leveled exercises (understanding / application / thinking) with answers. Runs in parallel with WritingAgent. |
 | **TLDRAgent** | Distills the tutorial into up to 5 key takeaways |
 | **ReviewAgent** | Evaluates each chapter on style, difficulty curve, and concept density (1-10, pass >= 7) |
 
@@ -120,15 +119,15 @@ grimoire/
 ├── cli.py                   # Unified CLI entry point
 ├── src/
 │   ├── agents/             # AI agent implementations
-│   │   ├── base_agent.py   # API client, retry, Pydantic parsing
+│   │   ├── base_agent.py   # API client (sync+async), retry, rate-limiting semaphore
 │   │   ├── concept.py      # Supports truncate=False for verbose mode
 │   │   ├── writing.py      # Includes run_verbose() method
 │   │   ├── exercise.py
 │   │   ├── tldr.py
 │   │   └── review.py
-│   ├── orchestrator.py     # Per-chapter pipeline (branching for verbose)
+│   ├── orchestrator.py     # Per-chapter pipeline (Writing+Exercise parallel, branching for verbose)
 │   ├── section_splitter.py # Adaptive L2/L3/L4 section splitting
-│   ├── batch.py            # Batch processing (passes verbose_mode + TOC)
+│   ├── batch.py            # Async batch processing (parallel chapters via --workers)
 │   ├── packager.py         # MkDocs packaging (multi-file chapter support)
 │   ├── pdf_parser.py       # PDF parsing core (stores TOC in JSON)
 │   ├── config.py           # Global configuration
@@ -143,14 +142,39 @@ grimoire/
 | Writing persona | `config/writing_style.md` | Controls tutorial voice and tone. Also used by ReviewAgent as style reference. |
 | Agent behavior | `prompts/system/*.md` | System prompts for each agent — edit without touching Python code |
 | User templates | `prompts/user/*.md` | User prompt templates with variable placeholders |
-| Model config | `src/config.py` | `MODEL_NAME`, `MAX_TOKENS`, `GLOSSARY_MAX_TOKENS` |
+| Model config | `src/config.py` / CLI / env | `--model` flag (highest) > `GRIMOIRE_MODEL` env > default `sonnet`. Aliases: `haiku`/`sonnet`/`opus`, mapped via `ANTHROPIC_DEFAULT_*_MODEL` env vars. Also supports direct model names. |
 | Verbose config | `src/config.py` | `VERBOSE_MAX_TOKENS`, `VERBOSE_MIN_SECTION_CHARS`, `VERBOSE_TARGET_MAX_CHARS` |
+| Concurrency | `src/config.py` / CLI | `MAX_CONCURRENT_CHAPTERS` (default: 4), `--workers N` flag |
+
+## Parallelization
+
+The pipeline supports two levels of parallelism for faster processing:
+
+### Intra-chapter parallelism
+
+After ConceptAgent extracts concepts, WritingAgent and ExerciseAgent run concurrently via `asyncio.gather`. This reduces per-chapter wall-clock time by ~25-30%.
+
+
+
+### Inter-chapter parallelism
+
+Use `--workers N` to process N chapters concurrently. Glossary uses a snapshot strategy: all parallel chapters receive the same glossary snapshot, and new concepts are merged under a lock after each chapter completes.
+
+
+
+### Implementation
+
+- Uses `asyncio` + `anthropic.AsyncAnthropic` for I/O-bound concurrency
+- Global API semaphore (`MAX_CONCURRENT_CHAPTERS * 2`) limits concurrent requests
+- Exponential backoff on `RateLimitError` provides double protection
+- Checkpoint/resume fully preserved: each chapter saves progress atomically on completion
+- Failure isolation: one chapter failure does not block others
 
 ## Limitations
 
 - PDFs must have "Chapter N" entries in the table of contents (regex: `Chapter\s+(\d+)`).
 - All prompts and the writing style guide are currently in Chinese. English support requires translating the prompts and style guide.
-- Model used: `claude-sonnet-4-6-20250514`.
+- Default model tier: `sonnet`. Use `--model` CLI flag or `GRIMOIRE_MODEL` env var to switch (supports `haiku`/`sonnet`/`opus` aliases or direct model names).
 - Verbose mode requires re-running `parse` to embed TOC data in `chapters_raw.json` (old JSON files lack this).
 - Verbose mode increases API cost ~3-5x due to multiple LLM calls per chapter.
 - Some very large sections (>30K chars) without L3 sub-entries cannot be split further and are rewritten as a single block.

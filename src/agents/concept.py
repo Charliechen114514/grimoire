@@ -28,8 +28,8 @@ class ConceptOutput(BaseModel):
 class ConceptAgent(BaseAgent):
     """从章节原文中提取核心知识点。"""
 
-    def __init__(self) -> None:
-        super().__init__("concept")
+    def __init__(self, model: str | None = None) -> None:
+        super().__init__("concept", model=model)
 
     def run(
         self,

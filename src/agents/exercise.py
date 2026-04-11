@@ -26,8 +26,8 @@ class ExerciseOutput(BaseModel):
 class ExerciseAgent(BaseAgent):
     """基于知识点生成 3-5 道梯度练习题。"""
 
-    def __init__(self) -> None:
-        super().__init__("exercise")
+    def __init__(self, model: str | None = None) -> None:
+        super().__init__("exercise", model=model)
 
     def run(
         self,

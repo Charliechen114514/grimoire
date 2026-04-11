@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 class WritingAgent(BaseAgent):
     """基于章节原文和知识点生成符合个人风格的教程正文。"""
 
-    def __init__(self) -> None:
-        super().__init__("writing")
+    def __init__(self, model: str | None = None) -> None:
+        super().__init__("writing", model=model)
 
     def run(
         self,

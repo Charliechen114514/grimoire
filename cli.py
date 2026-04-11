@@ -48,6 +48,7 @@ def _cmd_batch(args: argparse.Namespace) -> None:
             resume=not args.no_resume,
             verbose_mode=getattr(args, "verbose_mode", False),
             max_workers=getattr(args, "workers", 1),
+            model=getattr(args, "model", None),
         )
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run to resume.")
@@ -121,6 +122,7 @@ def _cmd_all(args: argparse.Namespace) -> None:
             resume=not args.no_resume,
             verbose_mode=getattr(args, "verbose_mode", False),
             max_workers=getattr(args, "workers", 1),
+            model=getattr(args, "model", None),
         )
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run with 'batch' to resume.")
@@ -169,6 +171,10 @@ def main() -> None:
         "--workers", "-w", type=int, default=1,
         help="Max concurrent chapters (default: 1 = sequential)",
     )
+    p_batch.add_argument(
+        "--model", "-m", default=None,
+        help="Model alias (haiku/sonnet/opus) or full model name (default: sonnet)",
+    )
 
     # ── review ──
     p_review = sub.add_parser("review", help="Review generated tutorials")
@@ -193,6 +199,10 @@ def main() -> None:
     p_all.add_argument(
         "--workers", "-w", type=int, default=1,
         help="Max concurrent chapters (default: 1 = sequential)",
+    )
+    p_all.add_argument(
+        "--model", "-m", default=None,
+        help="Model alias (haiku/sonnet/opus) or full model name (default: sonnet)",
     )
 
     args = parser.parse_args()
