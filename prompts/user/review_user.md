@@ -2,7 +2,7 @@
 
 ## 章节编号
 
-Chapter {chapter_idx}
+{chapter_label}
 
 ## 写作风格参考
 

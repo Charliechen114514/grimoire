@@ -5,7 +5,7 @@ Usage:
     python -m cli parse   https://www.wolai.com/xxx --slug MYBOOK
     python -m cli parse   https://example.com/tutorial --slug MYTUTORIAL --engine static
     python -m cli batch   MYBOOK [--no-resume]
-    python -m cli review  MYBOOK [--chapters 1 2 3]
+    python -m cli review  MYBOOK [--fix --max-retries 2] [--chapters 1 2 3]
     python -m cli package MYBOOK [--site-name "My Book"]
     python -m cli all     books/book.pdf --slug MYBOOK [--site-name "My Book"]
 """
@@ -98,13 +98,26 @@ def _cmd_batch(args: argparse.Namespace) -> None:
 
 
 def _cmd_review(args: argparse.Namespace) -> None:
-    from src.review import review_book
-
     setup_logging(args.verbose)
-    chapters = args.chapters if args.chapters else None
+    chapters = [(c, None) for c in args.chapters] if args.chapters else None
 
     try:
-        reviews = review_book(book_slug=args.book_slug, chapters=chapters)
+        if getattr(args, "fix", False):
+            from src.review import review_and_fix
+            reviews = review_and_fix(
+                book_slug=args.book_slug,
+                chapters=chapters,
+                max_workers=getattr(args, "workers", 1),
+                max_fix_rounds=getattr(args, "max_retries", 2),
+                model=getattr(args, "model", None),
+            )
+        else:
+            from src.review import review_book
+            reviews = review_book(
+                book_slug=args.book_slug,
+                chapters=chapters,
+                max_workers=getattr(args, "workers", 1),
+            )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         print(f"Hint: run 'python -m cli batch {args.book_slug}' first to generate tutorials.", file=sys.stderr)
@@ -137,7 +150,6 @@ def _cmd_all(args: argparse.Namespace) -> None:
     from src.batch import run_batch
     from src.packager import package
     from src.parsers import get_parser, save_chapters_raw
-    from src.review import review_book
 
     setup_logging(args.verbose)
 
@@ -185,11 +197,22 @@ def _cmd_all(args: argparse.Namespace) -> None:
         print("Interrupted — progress saved. Re-run with 'batch' to resume.")
         sys.exit(1)
 
-    # Phase 3: Review
+    # Phase 3: Review (with optional auto-fix)
     print(f"\n{'='*60}")
     print(f"[3/4] Reviewing tutorials for: {slug}")
     print(f"{'='*60}")
-    review_book(book_slug=slug)
+
+    if getattr(args, "no_fix", False):
+        from src.review import review_book
+        review_book(book_slug=slug)
+    else:
+        from src.review import review_and_fix
+        review_and_fix(
+            book_slug=slug,
+            max_workers=getattr(args, "workers", 1),
+            max_fix_rounds=getattr(args, "max_retries", 2),
+            model=getattr(args, "model", None),
+        )
 
     # Phase 4: Package
     print(f"\n{'='*60}")
@@ -262,6 +285,22 @@ def main() -> None:
     p_review = sub.add_parser("review", help="Review generated tutorials")
     p_review.add_argument("book_slug", help="Book identifier")
     p_review.add_argument("--chapters", nargs="+", type=int, help="Specific chapters")
+    p_review.add_argument(
+        "--workers", "-w", type=int, default=1,
+        help="Max concurrent review tasks (default: 1 = sequential)",
+    )
+    p_review.add_argument(
+        "--fix", action="store_true",
+        help="Auto-fix FAIL chapters with targeted edits",
+    )
+    p_review.add_argument(
+        "--max-retries", type=int, default=2,
+        help="Max fix rounds when --fix is enabled (default: 2)",
+    )
+    p_review.add_argument(
+        "--model", "-m", default=None,
+        help="Model alias (haiku/sonnet/opus) or full model name for fix agent",
+    )
 
     # ── package ──
     p_pkg = sub.add_parser("package", help="Package tutorials as mkdocs site")
@@ -297,6 +336,14 @@ def main() -> None:
     p_all.add_argument(
         "--no-images", action="store_true",
         help="Skip image extraction from PDF (text only)",
+    )
+    p_all.add_argument(
+        "--no-fix", action="store_true",
+        help="Disable auto-fix in review phase (review only)",
+    )
+    p_all.add_argument(
+        "--max-retries", type=int, default=2,
+        help="Max fix rounds in review phase (default: 2)",
     )
 
     args = parser.parse_args()

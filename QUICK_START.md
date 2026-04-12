@@ -121,6 +121,10 @@ cd output/MYBOOK && mkdocs serve   # 预览 http://127.0.0.1:8000
 ```bash
 python -m cli review MYBOOK              # 全部章节
 python -m cli review MYBOOK --chapters 1 2  # 指定章节
+
+# 审查并自动修复未通过章节
+python -m cli review MYBOOK --fix              # 审查 + 自动修复
+python -m cli review MYBOOK --fix --max-retries 3  # 最多修复 3 轮
 ```
 
 ### 模型选择
@@ -179,10 +183,13 @@ vim config/writing_style.md
 
 ```bash
 # PDF 教材
-python -m cli all books/textbook.pdf --slug MYBOOK   # parse → batch → review → package
+python -m cli all books/textbook.pdf --slug MYBOOK   # parse → batch → review(+auto-fix) → package
 
 # Wolai 教材（4 章并行）
 python cli.py all "https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W" --slug RTR4 --workers 4
+
+# 跳过自动修复（仅审查）
+python -m cli all books/textbook.pdf --slug MYBOOK --no-fix
 ```
 
 加 `-v` 查看 debug 日志。
@@ -306,6 +313,10 @@ cd output/MYBOOK && mkdocs serve   # Preview at http://127.0.0.1:8000
 ```bash
 python -m cli review MYBOOK              # All chapters
 python -m cli review MYBOOK --chapters 1 2  # Specific chapters
+
+# Review and auto-fix failed chapters
+python -m cli review MYBOOK --fix              # Review + auto-fix
+python -m cli review MYBOOK --fix --max-retries 3  # Up to 3 fix rounds
 ```
 
 ### Model Selection
@@ -363,10 +374,13 @@ vim config/writing_style.md
 
 ```bash
 # PDF textbook
-python -m cli all books/textbook.pdf --slug MYBOOK   # parse → batch → review → package
+python -m cli all books/textbook.pdf --slug MYBOOK   # parse → batch → review(+auto-fix) → package
 
 # Wolai textbook (4 chapters in parallel)
 python cli.py all "https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W" --slug RTR4 --workers 4
+
+# Skip auto-fix (review only)
+python -m cli all books/textbook.pdf --slug MYBOOK --no-fix
 ```
 
 Add `-v` for debug logging.

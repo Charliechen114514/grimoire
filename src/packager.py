@@ -7,6 +7,9 @@ from pathlib import Path
 from src.config import DATA_DIR, OUTPUT_DIR
 from src.log import logger
 
+# 自定义 CSS 模板路径
+_TEMPLATES_DIR = Path(__file__).parent / "templates"
+
 
 def package(book_slug: str, site_name: str | None = None) -> Path:
     """
@@ -50,6 +53,14 @@ def package(book_slug: str, site_name: str | None = None) -> Path:
         shutil.copytree(src_images, dst_images)
         img_count = len(list(dst_images.iterdir()))
         logger.info("Copied {} images -> {}", img_count, dst_images)
+
+    # 复制自定义 CSS
+    src_css = _TEMPLATES_DIR / "extra.css"
+    if src_css.exists():
+        css_dir = docs_dir / "stylesheets"
+        css_dir.mkdir(exist_ok=True)
+        shutil.copy2(src_css, css_dir / "extra.css")
+        logger.info("Copied custom CSS -> {}", css_dir / "extra.css")
 
     # 生成 index.md
     _generate_index(site_name, chapters, docs_dir, book_slug)
@@ -175,8 +186,11 @@ def _generate_mkdocs_config(
             display = f"第 {chapter_idx} 章"
 
         if sec_paths:
-            # 多文件章节：索引页 + 子节
-            nav_entries.append(f'      - "{display}": chapters/ch{chapter_idx:02d}.md')
+            # 多文件章节：分组标题 + 索引页 + 子节
+            nav_entries.append(f'      - "{display}":')
+            nav_entries.append(
+                f'          - "概览": chapters/ch{chapter_idx:02d}.md'
+            )
             for sec_path in sec_paths:
                 sec_title = _extract_title(sec_path)
                 nav_entries.append(
@@ -190,28 +204,93 @@ def _generate_mkdocs_config(
 
     config = f"""\
 site_name: "{site_name}"
+site_description: "基于 {site_name} 自动生成的学习教程"
+copyright: "Copyright &copy; {datetime.now(timezone.utc).year} Tutorial Summon"
 docs_dir: docs
 site_dir: site
+
 theme:
   name: material
   language: zh
   palette:
-    primary: indigo
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: 切换至暗色模式
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: black
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: 切换至亮色模式
+  font:
+    text: Noto Sans SC
+    code: JetBrains Mono
   features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.prune
+    - navigation.path
+    - navigation.indexes
     - navigation.top
     - navigation.footer
+    - toc.follow
     - search.suggest
     - search.highlight
+    - search.share
     - content.code.copy
+    - content.code.select
+    - content.code.annotate
+
 markdown_extensions:
-  - pymdownx.highlight:
-      anchor_linenums: true
-  - pymdownx.superfences
-  - pymdownx.details
+  - abbr
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
   - admonition
   - toc:
       permalink: true
-  - attr_list
+      permalink_title: 链接到此章节
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.caret
+  - pymdownx.mark
+  - pymdownx.tilde
+  - pymdownx.betterem
+
+plugins:
+  - search:
+      separator: '[\\s\\u200b\\-_,:!=\\[\\]()"/]+|\\.(?!\\d)|&[lg]t;|(?!\\b)(?=[A-Z][a-z])'
+      lang:
+        - zh
+        - en
+
+extra_css:
+  - stylesheets/extra.css
+
 nav:
   - 首页: index.md
   - 章节:

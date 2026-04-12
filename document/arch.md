@@ -27,11 +27,23 @@
   │  Cross-chapter glossary (snapshot + late merge)   │
   └──────────────────────────────────────────────────┘
       │
-      ├──── [Optional] Review: python -m cli review
+      ▼
+  ┌──────────────────────────────────────────────────┐
+  │  Phase 3: Review  (python -m cli review)         │
+  │                                                   │
+  │  ReviewAgent evaluates style/difficulty/density   │
+  │                                                   │
+  │  With --fix (default in `all`):                   │
+  │    FAIL chapters → FixAgent → re-review           │
+  │    Iterates until pass or max retries reached     │
+  │                                                   │
+  │  --no-fix: review only (no auto-fix)              │
+  │  --max-retries N: max fix rounds (default: 2)     │
+  └──────────────────────────────────────────────────┘
       │
       ▼
   ┌──────────────────────────────────────────────────┐
-  │  Phase 3: Package  (python -m cli package)       │
+  │  Phase 4: Package  (python -m cli package)       │
   │  Tutorials → MkDocs static site                  │
   └──────────────────────────────────────────────────┘
 ```
@@ -45,6 +57,7 @@
 | **ExerciseAgent** | Produces 3-5 leveled exercises (understanding / application / thinking) with answers. Runs in parallel with WritingAgent. |
 | **TLDRAgent** | Distills the tutorial into up to 5 key takeaways |
 | **ReviewAgent** | Evaluates each chapter on style, difficulty curve, and concept density (1-10, pass >= 7) |
+| **FixAgent** | Performs minimal, targeted fixes on failed chapters based on review feedback. Only modifies problematic parts, preserving the rest. Iterates until chapters pass or max retries reached. |
 
 ## Verbose Mode
 
@@ -119,6 +132,7 @@ grimoire/
 │       ├── writing_user.md
 │       ├── writing_verbose_user.md    # Verbose mode user prompt
 │       └── ...
+├── document/               # Architecture & usage documentation
 ├── cli.py                   # Unified CLI entry point
 ├── src/
 │   ├── agents/             # AI agent implementations
@@ -127,17 +141,21 @@ grimoire/
 │   │   ├── writing.py      # Includes run_verbose() method
 │   │   ├── exercise.py
 │   │   ├── tldr.py
-│   │   └── review.py
+│   │   ├── review.py       # Quality review agent
+│   │   └── fix.py          # Targeted fix agent (minimal edits on failed chapters)
 │   ├── orchestrator.py     # Per-chapter pipeline (Writing+Exercise parallel, branching for verbose)
 │   ├── section_splitter.py # Adaptive L2/L3/L4 section splitting
 │   ├── batch.py            # Async batch processing (parallel chapters via --workers)
+│   ├── review.py           # Review orchestration + auto-fix workflow
 │   ├── packager.py         # MkDocs packaging (multi-file chapter support)
-│   ├── pdf_parser.py       # PDF parsing core (stores TOC in JSON)
+│   ├── progress.py         # Batch progress tracking (checkpoint/resume)
 │   ├── parsers/            # Input parsers
 │   │   ├── base.py         # BaseParser abstract class
 │   │   ├── pdf_parser.py   # PDF parser
+│   │   ├── pdf_images.py   # PDF image extraction
 │   │   ├── __init__.py     # get_parser() factory + engine routing
 │   │   └── engines/        # Web parsing engines (plugin-style)
+│   │       ├── __init__.py # Engine auto-discovery & registry
 │   │       ├── base.py     # BaseWebEngine abstract base
 │   │       ├── wolai.py    # Wolai API engine (public API, instant)
 │   │       ├── static.py   # httpx + BeautifulSoup static HTML

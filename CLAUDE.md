@@ -42,11 +42,17 @@ python cli.py batch MYBOOK --workers 4
 # 审查质量
 python cli.py review MYBOOK
 
+# 审查并自动修复未通过章节
+python cli.py review MYBOOK --fix --max-retries 2
+
 # 打包为 MkDocs 站点
 python cli.py package MYBOOK --site-name "My Book"
 
-# 全流程
+# 全流程（默认含 review + auto-fix）
 python cli.py all books/book.pdf --slug MYBOOK --workers 4
+
+# 全流程（跳过 auto-fix）
+python cli.py all books/book.pdf --slug MYBOOK --workers 4 --no-fix
 ```
 
 ## 项目结构
@@ -56,26 +62,29 @@ cli.py               # CLI 入口 & 子命令分发
 src/
   config.py          # 全局配置（路径、模型、token 预算）
   log.py             # loguru 日志设置
-  parse.py           # 解析调度
   batch.py           # 批量并行处理
-  review.py          # 教程质量审查
+  review.py          # 教程质量审查 + auto-fix 工作流
   packager.py        # MkDocs 打包
   orchestrator.py    # 单章编排
   section_splitter.py# 章节分割
   glossary.py        # 术语表生成
   schema.py          # Pydantic 数据模型
-  agents/            # LLM Agent（tldr、concept、exercise、writing、review）
+  progress.py        # 批处理进度追踪（断点续跑）
+  agents/            # LLM Agent（base_agent、tldr、concept、exercise、writing、review、fix）
   parsers/           # 输入解析器
     base.py          # BaseParser 抽象基类
     pdf_parser.py    # PDF 解析器
+    pdf_images.py    # PDF 图片提取
     __init__.py      # get_parser() 工厂 + 引擎路由
     engines/         # Web 解析引擎（插件式）
       base.py        # BaseWebEngine 抽象基类
       wolai.py       # Wolai API 引擎（公开 API，秒级解析）
       static.py      # httpx + BeautifulSoup 静态 HTML 引擎
       playwright.py  # Playwright SPA 渲染引擎
+      __init__.py    # 引擎自动发现与注册
 config/              # 写作风格等配置文件
 prompts/             # Prompt 模板
+document/            # 架构文档与使用指南
 tests/               # 测试
 output/              # 生成的教程 Markdown
 data/                # 中间数据（chapters_raw.json 等）

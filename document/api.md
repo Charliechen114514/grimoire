@@ -35,6 +35,14 @@ All commands go through a unified CLI (`python -m cli`).
 python -m cli all books/textbook.pdf --slug MYBOOK
 ```
 
+The `all` command runs parse → batch → review (with auto-fix) → package. By default, auto-fix is enabled in the review phase.
+
+| Flag | Description |
+|------|-------------|
+| `--no-fix` | Disable auto-fix in review phase (review only) |
+| `--max-retries N` | Max fix rounds in review phase (default: 2) |
+| `--no-images` | Skip image extraction from PDF |
+
 ### Phase 1: Parse PDF / 解析 PDF
 
 ```bash
@@ -149,6 +157,22 @@ python -m cli all books/textbook.pdf --slug MYBOOK --verbose-mode
 python -m cli review MYBOOK                     # Review all chapters
 python -m cli review MYBOOK --chapters 1 2 3    # Specific chapters
 ```
+
+#### Auto-Fix / 自动修复
+
+Add `--fix` to automatically fix chapters that fail review. FixAgent performs minimal, targeted edits — only modifying problematic parts while preserving the rest.
+
+```bash
+python -m cli review MYBOOK --fix                     # Review + auto-fix
+python -m cli review MYBOOK --fix --max-retries 3     # Up to 3 fix rounds
+python -m cli review MYBOOK --fix -m opus              # Use opus for fixing
+```
+
+| Flag | Description |
+|------|-------------|
+| `--fix` | Enable auto-fix for failed chapters |
+| `--max-retries N` | Max fix rounds when `--fix` is enabled (default: 2) |
+| `--model` / `-m` | Model alias or name for the fix agent |
 
 Report saved to `data/MYBOOK/review_report.json`.
 

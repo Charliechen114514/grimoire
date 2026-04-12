@@ -29,6 +29,8 @@ class ChapterReview(BaseModel):
     scores: list[DimensionScore]
     issues: list[ReviewIssue]
     overall_pass: bool
+    chapter_idx: int = 0
+    section_idx: int | None = None
 
 
 class ReviewAgent(BaseAgent):
@@ -42,6 +44,8 @@ class ReviewAgent(BaseAgent):
         tutorial_markdown: str,
         chapter_idx: int,
         writing_style: str,
+        *,
+        label: str | None = None,
     ) -> ChapterReview:
         """
         审核单章教程。
@@ -50,27 +54,37 @@ class ReviewAgent(BaseAgent):
             tutorial_markdown: 教程完整 Markdown
             chapter_idx: 章节编号
             writing_style: writing_style.md 全文
+            label: 显示标签，如 "Ch.3.2"；为 None 时使用 "Ch.{chapter_idx}"
 
         Returns:
             ChapterReview 包含三维度评分和问题列表
         """
+        display_label = label or f"Ch.{chapter_idx}"
+
         system = self.load_prompt("system")
         user_template = self.load_prompt("user")
 
         user = user_template.format(
-            chapter_idx=chapter_idx,
+            chapter_label=display_label,
             writing_style=writing_style,
             tutorial_markdown=tutorial_markdown[:60000],
         )
 
         raw = self.call_api(system=system, user=user, max_tokens=4096)
         result = self.parse_json(raw, ChapterReview)
-        passed = "PASS" if result.overall_pass else "FAIL"
-        logger.info(
-            "Review Ch.{}: {} (scores: {}, issues: {})",
-            chapter_idx,
-            passed,
-            [(s.dimension, s.score) for s in result.scores],
-            len(result.issues),
-        )
+        scores_display = [(s.dimension, s.score) for s in result.scores]
+        if result.overall_pass:
+            logger.info(
+                "Review {}: PASS (scores: {}, issues: {})",
+                display_label,
+                scores_display,
+                len(result.issues),
+            )
+        else:
+            logger.warning(
+                "Review {}: FAIL (scores: {}, issues: {})",
+                display_label,
+                scores_display,
+                len(result.issues),
+            )
         return result

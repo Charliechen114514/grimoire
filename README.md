@@ -12,11 +12,13 @@
 
 **One-liner**:
 
+配置好`config/writing_style.md`后即可运行下面的指令开始尝试。
+
 ```bash
-# PDF 教材
+# PDF 教材（请替换成自己的pdf，非扫描稿）
 python -m cli all books/textbook.pdf --slug MYBOOK
 
-# Wolai 教程网站（自动检测引擎，秒级解析）
+# Wolai 教程网站
 python cli.py all "https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W" --slug RTR4 --workers 4
 ```
 
