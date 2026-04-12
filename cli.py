@@ -50,6 +50,7 @@ def _cmd_parse(args: argparse.Namespace) -> None:
             source,
             source_type=getattr(args, "source_type", None),
             engine=getattr(args, "engine", None),
+            extract_images=not getattr(args, "no_images", False),
             **kwargs,
         )
         result = parser.parse(source, slug)
@@ -153,6 +154,7 @@ def _cmd_all(args: argparse.Namespace) -> None:
         parser = get_parser(
             source,
             engine=getattr(args, "engine", None),
+            extract_images=not getattr(args, "no_images", False),
             **kwargs,
         )
         result = parser.parse(source, slug)
@@ -234,6 +236,10 @@ def main() -> None:
         "--url-pattern", default=None,
         help="Regex pattern for chapter URLs (web source, e.g. '/chapter-\\d+')",
     )
+    p_parse.add_argument(
+        "--no-images", action="store_true",
+        help="Skip image extraction from PDF (text only)",
+    )
 
     # ── batch ──
     p_batch = sub.add_parser("batch", help="Run full tutorial generation pipeline")
@@ -287,6 +293,10 @@ def main() -> None:
     p_all.add_argument(
         "--selector", default=None,
         help="CSS selector for content area (web source)",
+    )
+    p_all.add_argument(
+        "--no-images", action="store_true",
+        help="Skip image extraction from PDF (text only)",
     )
 
     args = parser.parse_args()

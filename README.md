@@ -13,12 +13,16 @@
 **One-liner**:
 
 ```bash
+# PDF 教材
 python -m cli all books/textbook.pdf --slug MYBOOK
+
+# Wolai 教程网站（自动检测引擎，秒级解析）
+python cli.py all "https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W" --slug RTR4 --workers 4
 ```
 
-Grimoire 解析技术 PDF 教材或 Web 教程网站，通过 AI 提取每章核心概念，以可配置的"工程师博主"人格生成教程正文，创建分级练习题，提炼要点，最终打包为可部署的 MkDocs 静态网站。
+Grimoire 解析技术 PDF 教材或 Web 教程网站，通过 AI 提取每章核心概念，以可配置的写作人格（`config/writing_style.md`）生成教程正文，创建分级练习题，提炼要点，最终打包为可部署的 MkDocs 静态网站。
 
-支持多种数据源：**PDF**、**Wolai**（公开 API 秒级解析）、**静态 HTML 网站**、**Playwright SPA 渲染**，也可通过自定义引擎插件扩展。支持 `--verbose-mode` 进行忠于原文的分节详细改写，`--workers N` 并行加速处理。
+支持多种数据源：**PDF**、**Wolai**（公开 API 秒级解析）、**静态 HTML 网站**、**Playwright SPA 渲染**，也可通过自定义引擎插件扩展。支持 `--verbose-mode` 进行忠于原文的分节详细改写，大章节自动分节防截断，`--workers N` 并行加速处理。
 
 ## 文档
 
@@ -42,12 +46,16 @@ Grimoire 解析技术 PDF 教材或 Web 教程网站，通过 AI 提取每章核
 **One-liner**:
 
 ```bash
+# PDF textbook
 python -m cli all books/textbook.pdf --slug MYBOOK
+
+# Wolai tutorial site (auto-detected engine, instant parsing)
+python cli.py all "https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W" --slug RTR4 --workers 4
 ```
 
-Grimoire parses technical PDF textbooks and web tutorial sites, extracts core concepts via AI, generates tutorial content in a configurable persona, creates leveled exercises, and packages everything into a deployable MkDocs static site.
+Grimoire parses technical PDF textbooks and web tutorial sites, extracts core concepts via AI, generates tutorial content in a configurable persona (`config/writing_style.md`), creates leveled exercises, and packages everything into a deployable MkDocs static site.
 
-Multiple data sources supported: **PDF**, **Wolai** (public API, instant parsing), **static HTML sites**, **Playwright SPA rendering**, and custom engine plugins. Supports `--verbose-mode` for faithful section-by-section rewrites, and `--workers N` for parallel processing.
+Multiple data sources supported: **PDF**, **Wolai** (public API, instant parsing), **static HTML sites**, **Playwright SPA rendering**, and custom engine plugins. Supports `--verbose-mode` for faithful section-by-section rewrites, auto-splitting large chapters to prevent truncation, and `--workers N` for parallel processing.
 
 ## Documentation
 

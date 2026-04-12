@@ -44,7 +44,7 @@ ANTHROPIC_API_KEY=你的API密钥
 python -m cli parse books/your-book.pdf --slug MYBOOK
 
 # Wolai 页面（自动检测引擎，秒级解析）
-python -m cli parse https://www.wolai.com/xxx --slug MYBOOK
+python -m cli parse https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W --slug RTR4
 
 # 指定 Web 引擎
 python -m cli parse https://example.com/tutorial --slug MYBOOK --engine static
@@ -87,7 +87,17 @@ Verbose 模式会：
 - 逐节调用 LLM 进行**忠实改写**（非压缩总结）
 - 每节输出为独立文件 `ch{x}_{y}.md`，并生成 `ch{x}.md` 索引页
 
-> **注意**：Verose 模式需要 `chapters_raw.json` 包含 TOC 数据。如果已有数据缺少 TOC，请重新运行 `parse` 命令。
+> **注意**：Verbose 模式需要 `chapters_raw.json` 包含 TOC 数据。如果已有数据缺少 TOC，请重新运行 `parse` 命令。
+
+#### 大章节自动分割（防截断）
+
+对于 Wolai 等 Web 来源，即使不开启 `--verbose-mode`，管线也会**自动检测大章节并分节处理**：
+
+- 当原文包含 Markdown 标题（如 `### 12.1 图像处理`）时，自动按标题切分
+- 切分后逐节调用 LLM 生成，避免单次输出 token 不够导致**内容截断**
+- 无需手动配置，对小章节（无可识别标题）无影响
+
+此机制对 PDF 来源同样安全——PDF 的 pymupdf TOC 通常已包含多级条目，会优先使用 TOC 分节。
 
 ### 6. 打包为网站
 
@@ -123,11 +133,33 @@ python -m cli batch MYBOOK --model glm-5.1  # 直接指定模型名
 
 > 配合 `ANTHROPIC_BASE_URL` 使用第三方代理时，设置对应的环境变量即可映射到实际模型名（如 `ANTHROPIC_DEFAULT_HAIKU_MODEL=GLM-4.7`）。
 
-### 自定义
+### 自定义写作风格
+
+生成教程的人格和语气由 `config/writing_style.md` 控制。项目自带默认风格（SICP 叙事风），可直接使用。
+
+如需调整，可从模板起步：
+
+```bash
+# 查看可用模板
+ls config/writing_style*.template*
+
+# 选择一个模板覆盖默认配置（二选一）
+cp config/writing_style1.template.md config/writing_style.md   # 模板 1
+cp config/writing_style2.template config/writing_style.md       # 模板 2
+
+# 然后按需编辑
+vim config/writing_style.md
+```
+
+- **模板 1**（`writing_style1.template.md`）：SICP 教材叙事风（与当前默认一致）
+- **模板 2**（`writing_style2.template`）：工程师博客实战风
+
+> 也可以直接编辑 `config/writing_style.md`，不依赖模板。文件为纯 Markdown，内容越详细，生成的教程风格越一致。
+
+### 其他自定义
 
 | 改什么 | 在哪里 |
 |---|---|
-| 写作人格 | `config/writing_style.md` |
 | Agent 提示词 | `prompts/system/*.md`、`prompts/user/*.md` |
 | 模型配置 | `--model` 参数、`GRIMOIRE_MODEL` 环境变量 |
 | 并发章节数 | `--workers N` 或 `MAX_CONCURRENT_CHAPTERS` 环境变量 |
@@ -136,7 +168,11 @@ python -m cli batch MYBOOK --model glm-5.1  # 直接指定模型名
 ### 一条龙
 
 ```bash
+# PDF 教材
 python -m cli all books/textbook.pdf --slug MYBOOK   # parse → batch → review → package
+
+# Wolai 教材（4 章并行）
+python cli.py all "https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W" --slug RTR4 --workers 4
 ```
 
 加 `-v` 查看 debug 日志。
@@ -183,7 +219,7 @@ Place your PDF textbook in `books/`. The PDF must have a TOC with "Chapter N" en
 python -m cli parse books/your-book.pdf --slug MYBOOK
 
 # Wolai page (auto-detected engine, instant parsing)
-python -m cli parse https://www.wolai.com/xxx --slug MYBOOK
+python -m cli parse https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W --slug RTR4
 
 # Specify web engine
 python -m cli parse https://example.com/tutorial --slug MYBOOK --engine static
@@ -228,6 +264,16 @@ Verbose mode:
 
 > **Note**: Verbose mode requires TOC data in `chapters_raw.json`. Re-run `parse` if your data lacks TOC.
 
+#### Auto-splitting for large chapters (truncation prevention)
+
+For web sources like Wolai, the pipeline **automatically detects and splits large chapters** even without `--verbose-mode`:
+
+- Scans raw text for Markdown headings (e.g. `### 12.1 Image Processing`) and splits by them
+- Each section is processed separately by the LLM, preventing **content truncation** from output token limits
+- No manual configuration needed; small chapters without detectable headings are unaffected
+
+This is safe for PDF sources too — pymupdf TOC usually already contains multi-level entries, which take priority over text-based splitting.
+
 ### 6. Package as Website
 
 ```bash
@@ -262,11 +308,33 @@ python -m cli batch MYBOOK --model glm-5.1  # Direct model name
 
 > When using a third-party proxy via `ANTHROPIC_BASE_URL`, set the env vars to map to actual model names (e.g., `ANTHROPIC_DEFAULT_HAIKU_MODEL=GLM-4.7`).
 
-### Customization
+### Customize Writing Style
+
+The persona and tone of generated tutorials are controlled by `config/writing_style.md`. A default style (SICP narrative) ships with the project and works out of the box.
+
+To customize, start from a template:
+
+```bash
+# List available templates
+ls config/writing_style*.template*
+
+# Pick one and overwrite the default
+cp config/writing_style1.template.md config/writing_style.md   # Template 1
+cp config/writing_style2.template config/writing_style.md       # Template 2
+
+# Edit to your liking
+vim config/writing_style.md
+```
+
+- **Template 1** (`writing_style1.template.md`): SICP textbook narrative style (same as current default)
+- **Template 2** (`writing_style2.template`): Engineer blog / hands-on style
+
+> You can also edit `config/writing_style.md` directly without a template. The file is plain Markdown — the more detailed it is, the more consistent the generated tutorials will be.
+
+### Other Customization
 
 | What to change | Where |
 |---|---|
-| Writing persona | `config/writing_style.md` |
 | Agent prompts | `prompts/system/*.md`, `prompts/user/*.md` |
 | Model config | `--model` flag, `GRIMOIRE_MODEL` env var |
 | Concurrency | `--workers N` or `MAX_CONCURRENT_CHAPTERS` env var |
@@ -274,7 +342,11 @@ python -m cli batch MYBOOK --model glm-5.1  # Direct model name
 ### All-in-one
 
 ```bash
+# PDF textbook
 python -m cli all books/textbook.pdf --slug MYBOOK   # parse → batch → review → package
+
+# Wolai textbook (4 chapters in parallel)
+python cli.py all "https://www.wolai.com/fkGSwxLu2pjWD7kiBY1V7W" --slug RTR4 --workers 4
 ```
 
 Add `-v` for debug logging.

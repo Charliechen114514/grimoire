@@ -41,6 +41,8 @@ def get_parser(
     source: str,
     source_type: str | None = None,
     engine: str | None = None,
+    *,
+    extract_images: bool = True,
     **kwargs,
 ) -> BaseParser:
     """
@@ -50,6 +52,7 @@ def get_parser(
         source: 文件路径或 URL
         source_type: 显式指定类型 ("pdf" | "web")，不指定则自动检测
         engine: Web 引擎名称（如 "wolai"、"static"、"playwright"）或 .py 文件路径
+        extract_images: PDF 解析时是否提取图片（默认 True）
         **kwargs: 传递给引擎的额外参数
 
     Returns:
@@ -57,7 +60,7 @@ def get_parser(
     """
     # PDF 始终走 PDFParser
     if source_type == "pdf" or (not source_type and _is_pdf(source)):
-        return PDFParser()
+        return PDFParser(extract_images=extract_images)
 
     # Web 类型
     if source_type == "web" or source.startswith(("http://", "https://")):

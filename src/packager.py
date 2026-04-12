@@ -4,7 +4,7 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 
-from src.config import OUTPUT_DIR
+from src.config import DATA_DIR, OUTPUT_DIR
 from src.log import logger
 
 
@@ -42,6 +42,14 @@ def package(book_slug: str, site_name: str | None = None) -> Path:
 
     if not chapters:
         raise FileNotFoundError(f"No tutorial files found in {tutorials_dir}")
+
+    # 复制提取的图片（如有）
+    src_images = DATA_DIR / book_slug / "images"
+    if src_images.exists():
+        dst_images = docs_dir / "images"
+        shutil.copytree(src_images, dst_images)
+        img_count = len(list(dst_images.iterdir()))
+        logger.info("Copied {} images -> {}", img_count, dst_images)
 
     # 生成 index.md
     _generate_index(site_name, chapters, docs_dir, book_slug)

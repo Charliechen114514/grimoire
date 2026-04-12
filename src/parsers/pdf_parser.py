@@ -62,12 +62,28 @@ def _extract_chapter_toc(toc: list[tuple[int, str, int]]) -> list[tuple[int, str
     return chapters
 
 
-def _extract_page_text(doc: pymupdf.Document, start_page: int, end_page: int) -> str:
-    """从 PDF 中提取指定页范围的纯文本。"""
+def _extract_page_text(
+    doc: pymupdf.Document,
+    start_page: int,
+    end_page: int,
+    *,
+    images_dir: Path | None = None,
+    chapter_num: int = 0,
+    image_counter: dict[str, int] | None = None,
+    saved_images: dict[int, str] | None = None,
+) -> str:
+    """从 PDF 中提取指定页范围的文本（可选含图片）。"""
     parts: list[str] = []
     for page_idx in range(start_page - 1, min(end_page - 1, doc.page_count)):
         page = doc[page_idx]
-        text = page.get_text()
+        if images_dir and image_counter is not None and saved_images is not None:
+            from .pdf_images import extract_page_blocks
+
+            text = extract_page_blocks(
+                page, images_dir, chapter_num, image_counter, saved_images,
+            )
+        else:
+            text = page.get_text()
         if text.strip():
             parts.append(text.strip())
 
@@ -76,9 +92,12 @@ def _extract_page_text(doc: pymupdf.Document, start_page: int, end_page: int) ->
 
 def _extract_chapters_from_pdf(
     pdf_path: Path,
+    *,
+    book_slug: str = "",
+    extract_images: bool = True,
 ) -> tuple[dict[int, str], list[tuple[int, str, int]]]:
     """
-    用 pymupdf TOC 定位章节边界，按页范围提取文本。
+    用 pymupdf TOC 定位章节边界，按页范围提取文本（含可选图片提取）。
 
     Returns:
         (chapters, toc) — {chapter_num: text} 和原始 TOC
@@ -92,6 +111,17 @@ def _extract_chapters_from_pdf(
             logger.warning("No chapter entries found in TOC for {}", pdf_path)
             return {}, toc
 
+        # 图片提取状态（跨章节共享）
+        images_dir: Path | None = None
+        image_counter: dict[str, int] | None = None
+        saved_images: dict[int, str] | None = None
+        if extract_images and book_slug:
+            from src.config import book_data_dir
+
+            images_dir = book_data_dir(book_slug) / "images"
+            image_counter = {"count": 0}
+            saved_images = {}
+
         chapters: dict[int, str] = {}
         for i, (ch_num, title, start_page) in enumerate(chapter_entries):
             if i + 1 < len(chapter_entries):
@@ -99,16 +129,25 @@ def _extract_chapters_from_pdf(
             else:
                 end_page = doc.page_count + 1
 
-            text = _extract_page_text(doc, start_page, end_page)
+            text = _extract_page_text(
+                doc,
+                start_page,
+                end_page,
+                images_dir=images_dir,
+                chapter_num=ch_num,
+                image_counter=image_counter,
+                saved_images=saved_images,
+            )
             chapters[ch_num] = text
             logger.debug(
                 "Chapter {} '{}': pages {}-{}, {} chars",
                 ch_num, title, start_page, end_page - 1, len(text),
             )
 
+        img_count = image_counter["count"] if image_counter else 0
         logger.info(
-            "Extracted {} chapters from {}: {}",
-            len(chapters), pdf_path.name, sorted(chapters.keys()),
+            "Extracted {} chapters from {}: {} ({} images)",
+            len(chapters), pdf_path.name, sorted(chapters.keys()), img_count,
         )
         return chapters, toc
     finally:
@@ -117,6 +156,9 @@ def _extract_chapters_from_pdf(
 
 class PDFParser(BaseParser):
     """PDF 文件解析器，使用 pymupdf 提取章节文本。"""
+
+    def __init__(self, extract_images: bool = True) -> None:
+        self.extract_images = extract_images
 
     def parse(self, source: str, book_slug: str) -> ChaptersRaw:
         """
@@ -131,7 +173,11 @@ class PDFParser(BaseParser):
             raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
         logger.info("Parsing PDF: {} [slug={}]", pdf_path, book_slug)
-        chapters, toc = _extract_chapters_from_pdf(pdf_path)
+        chapters, toc = _extract_chapters_from_pdf(
+            pdf_path,
+            book_slug=book_slug,
+            extract_images=self.extract_images,
+        )
 
         if not chapters:
             raise ValueError(f"No chapters found in PDF TOC: {pdf_path}")
