@@ -29,17 +29,18 @@ def _extract_chapter_toc(toc: list[tuple[int, str, int]]) -> list[tuple[int, str
     从 TOC 中筛选出章级条目。
 
     策略：
-    1. 优先匹配 "Chapter N" 格式的标题
+    1. 优先匹配 "Chapter N" 或 "第N章" 格式的标题
     2. 若无匹配，回退：将所有 L1 条目按顺序编号为章节，
        跳过 Preface / Index / Cover 等非正文条目
     """
-    # ── 策略 1：匹配 "Chapter N" ──
-    pattern = re.compile(r"Chapter\s+(\d+)", re.IGNORECASE)
+    # ── 策略 1：匹配 "Chapter N" / "第N章" ──
+    from src.section_splitter import _parse_chapter_number
+
     chapters = []
     for _level, title, page in toc:
-        m = pattern.search(title)
-        if m:
-            chapters.append((int(m.group(1)), title, page))
+        ch_num = _parse_chapter_number(title)
+        if ch_num is not None:
+            chapters.append((ch_num, title, page))
 
     if chapters:
         chapters.sort(key=lambda x: x[0])

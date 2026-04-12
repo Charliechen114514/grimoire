@@ -17,8 +17,50 @@ class Section:
     depth: int  # 来源 TOC 层级 (2=L2, 3=L3, ...)
 
 
-# 匹配 "Chapter N" 的模式
-_CHAPTER_PATTERN = re.compile(r"Chapter\s+(\d+)", re.IGNORECASE)
+# ── 中文数字转换 ──
+
+_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+              "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _cn_to_int(s: str) -> int | None:
+    """中文数字转整数，支持 一..九十九。"""
+    if not s:
+        return None
+    if s.isdigit():
+        return int(s)
+    result = 0
+    for ch in s:
+        if ch == "十":
+            if result == 0:
+                result = 1
+            result *= 10
+        elif ch in _CN_DIGITS:
+            result += _CN_DIGITS[ch]
+        else:
+            return None
+    return result if result > 0 else None
+
+
+# 匹配 "Chapter N" 或 "第N章" 的模式
+_CHAPTER_PATTERNS = [
+    re.compile(r"Chapter\s+(\d+)", re.IGNORECASE),
+    re.compile(r"第([一二三四五六七八九十百零\d]+)\s*章"),
+]
+
+
+def _parse_chapter_number(title: str) -> int | None:
+    """从标题中提取章节编号，同时支持英文和中文格式。"""
+    for pat in _CHAPTER_PATTERNS:
+        m = pat.search(title)
+        if m:
+            raw = m.group(1)
+            return int(raw) if raw.isdigit() else _cn_to_int(raw)
+    return None
+
+
+# 向后兼容：保留旧常量名
+_CHAPTER_PATTERN = _CHAPTER_PATTERNS[0]
 
 
 # 匹配 Markdown 编号标题（### 12.1 图像处理 等）
@@ -60,6 +102,11 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", text.replace("\n", " ")).strip().lower()
 
 
+def _despace(text: str) -> str:
+    """去除所有空白，用于 PDF 文本与 TOC 标题的空格不敏感匹配。"""
+    return re.sub(r"\s+", "", text).lower()
+
+
 def _find_title_in_text(title: str, text: str) -> int:
     """
     在章节文本中定位标题的字符偏移量。
@@ -68,6 +115,7 @@ def _find_title_in_text(title: str, text: str) -> int:
     1. 精确匹配：将标题作为独立行查找（含 PDF 页眉格式）
     2. 归一化匹配：两边都归一化后查找
     3. 前缀匹配：查找归一化标题的前 20 字符
+    4. 去空格匹配：去除所有空白后比较（PDF 文本与 TOC 空格差异）
 
     Returns:
         字符偏移量，未找到返回 -1
@@ -98,6 +146,15 @@ def _find_title_in_text(title: str, text: str) -> int:
                 return offset
             offset += len(line) + 1
 
+    # 策略 4：去空格匹配（PDF 文本空格位置常与 TOC 不一致）
+    ds_title = _despace(title)
+    if len(ds_title) >= 6:
+        offset = 0
+        for line in lines:
+            if _despace(line).startswith(ds_title):
+                return offset
+            offset += len(line) + 1
+
     return -1
 
 
@@ -108,14 +165,16 @@ def _collect_toc_subtree(
     """
     从 TOC 中提取指定章节的完整子树（L1 之后、下一个 L1 之前的所有条目）。
 
+    支持英文 "Chapter N" 和中文 "第N章" 两种标题格式。
+
     Returns:
         [(level, title, page), ...] 列表
     """
     ch_start_idx = None
     for i, (level, title, _page) in enumerate(toc):
-        if level == 1 and _CHAPTER_PATTERN.search(title):
-            m = _CHAPTER_PATTERN.search(title)
-            if m and int(m.group(1)) == chapter_idx:
+        if level == 1:
+            ch_num = _parse_chapter_number(title)
+            if ch_num is not None and ch_num == chapter_idx:
                 ch_start_idx = i
                 break
 
@@ -274,9 +333,15 @@ def split_chapter_into_sections(
     if not toc:
         return _mono_fallback("No TOC, chapter {}".format(chapter_idx))
 
-    subtree = _collect_toc_subtree(toc, chapter_idx)
+    # 从原文中检测真实章节号（优先于传入的 sequential key）
+    # 适用于 pdf_parser 按顺序编号、但原文是 "第N章" 格式的情况
+    detected_ch = _parse_chapter_number(chapter_text[:500])
+    effective_idx = detected_ch if detected_ch is not None else chapter_idx
+
+    subtree = _collect_toc_subtree(toc, effective_idx)
     if not subtree:
-        return _mono_fallback("No TOC subtree for chapter {}".format(chapter_idx))
+        return _mono_fallback("No TOC subtree for chapter {} (detected={})".format(
+            chapter_idx, detected_ch))
 
     # ── 第一轮：用 L2 切分 ──
     l2_entries = [(title, page) for level, title, page in subtree if level == 2]
