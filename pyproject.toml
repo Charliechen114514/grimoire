@@ -26,10 +26,11 @@ dependencies = [
 # pip install ".[dev]"   → 开发 & 测试
 # pip install ".[all]"   → 全部装齐
 [project.optional-dependencies]
+web   = ["httpx>=0.27.0", "beautifulsoup4>=4.12.0", "playwright>=1.40.0"]
 ocr   = ["marker-pdf>=1.10.0"]
 site  = ["mkdocs>=1.6.0", "mkdocs-material>=9.5.0"]
 dev   = ["pytest>=8.0.0"]
-all   = ["tutorial-summon[ocr,site,dev]"]
+all   = ["tutorial-summon[web,ocr,site,dev]"]
 
 # ── CLI entry point ───────────────────────────────────────────────
 # 安装后可直接 summon <command>，无需 python -m cli

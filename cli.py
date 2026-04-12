@@ -2,34 +2,73 @@
 
 Usage:
     python -m cli parse   books/book.pdf --slug MYBOOK
+    python -m cli parse   https://www.wolai.com/xxx --slug MYBOOK
+    python -m cli parse   https://example.com/tutorial --slug MYTUTORIAL --engine static
     python -m cli batch   MYBOOK [--no-resume]
     python -m cli review  MYBOOK [--chapters 1 2 3]
     python -m cli package MYBOOK [--site-name "My Book"]
     python -m cli all     books/book.pdf --slug MYBOOK [--site-name "My Book"]
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv()  # 确保在读取环境变量之前加载 .env
+
 from src.log import setup_logging
+
+# 环境变量默认值（必须在 load_dotenv 之后）
+_VERBOSE_MODE_DEFAULT = os.getenv("VERBOSE_MODE", "").lower() in ("1", "true", "yes")
+
+
+def _build_web_kwargs(args: argparse.Namespace) -> dict:
+    """从 CLI 参数构建 Web 引擎配置。"""
+    kwargs = {}
+    if getattr(args, "selector", None):
+        kwargs["selector"] = args.selector
+    if getattr(args, "nav_selector", None):
+        kwargs["nav_selector"] = args.nav_selector
+    if getattr(args, "url_pattern", None):
+        kwargs["url_pattern"] = args.url_pattern
+    return kwargs
 
 
 def _cmd_parse(args: argparse.Namespace) -> None:
-    from src.pdf_parser import save_chapters_raw, split_book
+    from src.parsers import get_parser, save_chapters_raw
 
     setup_logging(args.verbose)
-    pdf_path = Path(args.pdf)
-    if not pdf_path.exists():
-        print(f"Error: file not found: {pdf_path}", file=sys.stderr)
+
+    source = args.source
+    slug = args.slug
+    kwargs = _build_web_kwargs(args)
+
+    try:
+        parser = get_parser(
+            source,
+            source_type=getattr(args, "source_type", None),
+            engine=getattr(args, "engine", None),
+            **kwargs,
+        )
+        result = parser.parse(source, slug)
+    except FileNotFoundError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+    except RuntimeError as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    chapters, toc = split_book(pdf_path, book_slug=args.slug)
-    if not chapters:
-        print("Error: no chapters found in PDF TOC", file=sys.stderr)
+    if not result.chapters:
+        print("Error: no chapters extracted from source", file=sys.stderr)
         sys.exit(1)
 
-    out = save_chapters_raw(chapters, book_slug=args.slug, pdf_path=pdf_path, toc=toc)
-    print(f"OK: {len(chapters)} chapters -> {out}")
+    out = save_chapters_raw(result, slug)
+    print(f"OK: {result.metadata.total_chapters} chapters -> {out}")
 
 
 def _cmd_batch(args: argparse.Namespace) -> None:
@@ -46,7 +85,7 @@ def _cmd_batch(args: argparse.Namespace) -> None:
         )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
-        print(f"Hint: run 'python -m cli parse books/{args.book_slug}.pdf --slug {args.book_slug}' first.", file=sys.stderr)
+        print(f"Hint: run 'parse' command first to generate chapters_raw.json.", file=sys.stderr)
         sys.exit(1)
     except KeyboardInterrupt:
         print("Interrupted — progress saved. Re-run to resume.")
@@ -96,28 +135,37 @@ def _cmd_all(args: argparse.Namespace) -> None:
     """Run the full pipeline: parse → batch → review → package."""
     from src.batch import run_batch
     from src.packager import package
-    from src.pdf_parser import save_chapters_raw, split_book
+    from src.parsers import get_parser, save_chapters_raw
     from src.review import review_book
 
     setup_logging(args.verbose)
 
-    pdf_path = Path(args.pdf)
+    source = args.source
     slug = args.slug
 
     # Phase 1: Parse
     print(f"\n{'='*60}")
-    print(f"[1/4] Parsing PDF: {pdf_path}")
+    print(f"[1/4] Parsing source: {source}")
     print(f"{'='*60}")
-    if not pdf_path.exists():
-        print(f"Error: file not found: {pdf_path}", file=sys.stderr)
+
+    try:
+        kwargs = _build_web_kwargs(args)
+        parser = get_parser(
+            source,
+            engine=getattr(args, "engine", None),
+            **kwargs,
+        )
+        result = parser.parse(source, slug)
+    except (FileNotFoundError, ValueError, RuntimeError) as e:
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
-    chapters, toc = split_book(pdf_path, book_slug=slug)
-    if not chapters:
-        print("Error: no chapters found in PDF TOC", file=sys.stderr)
+    if not result.chapters:
+        print("Error: no chapters extracted from source", file=sys.stderr)
         sys.exit(1)
-    save_chapters_raw(chapters, book_slug=slug, pdf_path=pdf_path, toc=toc)
-    print(f"  Parsed {len(chapters)} chapters")
+
+    save_chapters_raw(result, slug)
+    print(f"  Parsed {result.metadata.total_chapters} chapters")
 
     # Phase 2: Batch generate tutorials
     print(f"\n{'='*60}")
@@ -156,23 +204,44 @@ def _cmd_all(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="summon",
-        description="Tutorial Summon — PDF textbook to tutorial pipeline",
+        description="Tutorial Summon — content to tutorial pipeline (PDF, web, etc.)",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="Debug logging")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # ── parse ──
-    p_parse = sub.add_parser("parse", help="Parse PDF into per-chapter text")
-    p_parse.add_argument("pdf", help="Path to the PDF file")
+    p_parse = sub.add_parser("parse", help="Parse source into per-chapter text")
+    p_parse.add_argument("source", help="Path to PDF file or URL of tutorial website")
     p_parse.add_argument("--slug", "-s", required=True, help="Book slug (e.g. MYBOOK)")
+    p_parse.add_argument(
+        "--source-type", "-t", default=None,
+        choices=["pdf", "web"],
+        help="Force source type (auto-detected if omitted)",
+    )
+    p_parse.add_argument(
+        "--engine", "-e", default=None,
+        help="Web engine: wolai, static, playwright, or path/to/custom.py (auto-detected if omitted)",
+    )
+    p_parse.add_argument(
+        "--selector", default=None,
+        help="CSS selector for content area (web source)",
+    )
+    p_parse.add_argument(
+        "--nav-selector", default=None,
+        help="CSS selector for navigation links (web source)",
+    )
+    p_parse.add_argument(
+        "--url-pattern", default=None,
+        help="Regex pattern for chapter URLs (web source, e.g. '/chapter-\\d+')",
+    )
 
     # ── batch ──
     p_batch = sub.add_parser("batch", help="Run full tutorial generation pipeline")
     p_batch.add_argument("book_slug", help="Book identifier")
     p_batch.add_argument("--no-resume", action="store_true", help="Start from scratch")
     p_batch.add_argument(
-        "--verbose-mode", action="store_true",
-        help="Verbose mode: section-by-section faithful rewrite",
+        "--verbose-mode", action="store_true", default=_VERBOSE_MODE_DEFAULT,
+        help="Verbose mode: section-by-section faithful rewrite (env: VERBOSE_MODE)",
     )
     p_batch.add_argument(
         "--workers", "-w", type=int, default=1,
@@ -195,13 +264,17 @@ def main() -> None:
 
     # ── all ──
     p_all = sub.add_parser("all", help="Full pipeline: parse → batch → review → package")
-    p_all.add_argument("pdf", help="Path to the PDF file")
+    p_all.add_argument("source", help="Path to PDF file or URL of tutorial website")
     p_all.add_argument("--slug", "-s", required=True, help="Book slug")
     p_all.add_argument("--site-name", default=None, help="Site display name")
     p_all.add_argument("--no-resume", action="store_true", help="Start batch from scratch")
     p_all.add_argument(
-        "--verbose-mode", action="store_true",
-        help="Verbose mode: section-by-section faithful rewrite",
+        "--engine", "-e", default=None,
+        help="Web engine: wolai, static, playwright, or path/to/custom.py",
+    )
+    p_all.add_argument(
+        "--verbose-mode", action="store_true", default=_VERBOSE_MODE_DEFAULT,
+        help="Verbose mode: section-by-section faithful rewrite (env: VERBOSE_MODE)",
     )
     p_all.add_argument(
         "--workers", "-w", type=int, default=1,
@@ -210,6 +283,10 @@ def main() -> None:
     p_all.add_argument(
         "--model", "-m", default=None,
         help="Model alias (haiku/sonnet/opus) or full model name (default: sonnet)",
+    )
+    p_all.add_argument(
+        "--selector", default=None,
+        help="CSS selector for content area (web source)",
     )
 
     args = parser.parse_args()

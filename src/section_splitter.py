@@ -21,6 +21,40 @@ class Section:
 _CHAPTER_PATTERN = re.compile(r"Chapter\s+(\d+)", re.IGNORECASE)
 
 
+# 匹配 Markdown 编号标题（### 12.1 图像处理 等）
+_NUMBERED_HEADING = re.compile(r'^(#{2,4})\s+(\d+\.\d+\s+.+)$', re.MULTILINE)
+
+
+def _split_by_text_headings(text: str, chapter_idx: int) -> list[Section] | None:
+    """
+    从原文中扫描 Markdown 编号标题（### N.M ...），按标题位置切分。
+
+    仅在 TOC 无 L2+ 条目时作为 fallback 调用。
+    适用场景：Wolai 等输出 Markdown 格式的来源。
+    不适用：PDF 纯文本来源（无 Markdown 标题），但 PDF 的 pymupdf TOC 通常足够。
+    """
+    matches = list(_NUMBERED_HEADING.finditer(text))
+
+    if len(matches) < 2:
+        return None
+
+    sections: list[Section] = []
+    for i, m in enumerate(matches):
+        start = m.start()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        title = m.group(2).strip()
+        chunk = text[start:end].strip()
+        sections.append(Section(
+            title=title,
+            text=chunk,
+            page_start=0,
+            page_end=0,
+            depth=2,
+        ))
+
+    return sections
+
+
 def _normalize(text: str) -> str:
     """归一化标题文本：折叠空白、去除换行、转小写，用于模糊匹配。"""
     return re.sub(r"\s+", " ", text.replace("\n", " ")).strip().lower()
@@ -219,8 +253,16 @@ def split_chapter_into_sections(
     Returns:
         Section 列表。TOC 缺失或无条目时返回单节（整章）。
     """
-    if not toc:
-        logger.info("No TOC, chapter {} as single section", chapter_idx)
+    # ── Mono fallback：尝试从原文 Markdown 标题分割 ──
+    def _mono_fallback(reason: str) -> list[Section]:
+        text_sections = _split_by_text_headings(chapter_text, chapter_idx)
+        if text_sections:
+            logger.info(
+                "{} — split into {} sections from text headings",
+                reason, len(text_sections),
+            )
+            return text_sections
+        logger.info("{} — single section", reason)
         return [Section(
             title=f"Chapter {chapter_idx}",
             text=chapter_text,
@@ -229,28 +271,17 @@ def split_chapter_into_sections(
             depth=0,
         )]
 
+    if not toc:
+        return _mono_fallback("No TOC, chapter {}".format(chapter_idx))
+
     subtree = _collect_toc_subtree(toc, chapter_idx)
     if not subtree:
-        logger.info("No TOC subtree for chapter {}", chapter_idx)
-        return [Section(
-            title=f"Chapter {chapter_idx}",
-            text=chapter_text,
-            page_start=0,
-            page_end=0,
-            depth=0,
-        )]
+        return _mono_fallback("No TOC subtree for chapter {}".format(chapter_idx))
 
     # ── 第一轮：用 L2 切分 ──
     l2_entries = [(title, page) for level, title, page in subtree if level == 2]
     if not l2_entries:
-        logger.info("No L2 entries for chapter {}", chapter_idx)
-        return [Section(
-            title=f"Chapter {chapter_idx}",
-            text=chapter_text,
-            page_start=0,
-            page_end=0,
-            depth=0,
-        )]
+        return _mono_fallback("No L2 entries for chapter {}".format(chapter_idx))
 
     l2_sections = _split_text_by_titles(chapter_text, l2_entries, default_depth=2)
 

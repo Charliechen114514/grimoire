@@ -3,12 +3,15 @@
 ## Pipeline
 
 ```
-  PDF Textbook
+  PDF Textbook / Web URL
       │
       ▼
   ┌──────────────────────────────────────────────────┐
   │  Phase 1: Parse  (python -m cli parse)           │
-  │  pdf_parser.split_book() → chapters_raw.json     │
+  │                                                   │
+  │  PDF → PDFParser                                  │
+  │  Web → Engine (wolai / static / playwright)       │
+  │        → chapters_raw.json                        │
   └──────────────────────────────────────────────────┘
       │
       ▼
@@ -130,6 +133,15 @@ grimoire/
 │   ├── batch.py            # Async batch processing (parallel chapters via --workers)
 │   ├── packager.py         # MkDocs packaging (multi-file chapter support)
 │   ├── pdf_parser.py       # PDF parsing core (stores TOC in JSON)
+│   ├── parsers/            # Input parsers
+│   │   ├── base.py         # BaseParser abstract class
+│   │   ├── pdf_parser.py   # PDF parser
+│   │   ├── __init__.py     # get_parser() factory + engine routing
+│   │   └── engines/        # Web parsing engines (plugin-style)
+│   │       ├── base.py     # BaseWebEngine abstract base
+│   │       ├── wolai.py    # Wolai API engine (public API, instant)
+│   │       ├── static.py   # httpx + BeautifulSoup static HTML
+│   │       └── playwright.py # Playwright SPA rendering
 │   ├── config.py           # Global configuration
 │   └── ...
 └── tests/
@@ -170,9 +182,72 @@ Use `--workers N` to process N chapters concurrently. Glossary uses a snapshot s
 - Checkpoint/resume fully preserved: each chapter saves progress atomically on completion
 - Failure isolation: one chapter failure does not block others
 
+## Web Parsing Engine System
+
+Grimoire uses a plugin-style engine architecture for web source parsing. Each web source type corresponds to an independent Python engine file.
+
+### Engine Interface
+
+All engines inherit `BaseWebEngine` and implement a single method: `parse(source, book_slug) -> ChaptersRaw`.
+
+```python
+class BaseWebEngine(ABC):
+    NAME: str = ""           # CLI --engine name
+    DOMAINS: list[str] = []  # Auto-detection domains
+
+    def parse(self, source: str, book_slug: str) -> ChaptersRaw: ...
+    @classmethod
+    def can_handle(cls, url: str) -> bool: ...
+```
+
+### Engine Selection Flow
+
+```
+CLI --engine name
+    │
+    ▼
+get_parser(source, engine="wolai")
+    │
+    ├─ engine specified? → use that engine
+    ├─ URL domain match? → auto-detect (e.g., wolai.com → WolaiEngine)
+    └─ no match → fallback to StaticEngine
+    │
+    ▼
+engine.parse(source, slug) → ChaptersRaw
+```
+
+### Adding Custom Engines
+
+Create a `.py` file inheriting `BaseWebEngine`:
+
+```python
+from src.parsers.engines.base import BaseWebEngine
+from src.schema import ChaptersRaw
+
+class NotionEngine(BaseWebEngine):
+    NAME = "notion"
+    DOMAINS = ["notion.so", "notion.site"]
+
+    def parse(self, source: str, book_slug: str) -> ChaptersRaw:
+        ...
+```
+
+Drop it in `src/parsers/engines/` for auto-discovery, or use `--engine /path/to/custom.py`.
+
+### Built-in Engine Details
+
+| Engine | Strategy | When to use |
+|--------|----------|-------------|
+| **Wolai** | Direct HTTP API calls to Wolai's public endpoints (`getSharedSubPages`, `getPageChunks`) | Any `wolai.com` URL — auto-detected, no browser needed |
+| **Static** | httpx fetch + BeautifulSoup HTML parsing + CSS selector content extraction | Traditional server-rendered tutorial sites |
+| **Playwright** | Headless Chromium renders SPA pages; uses in-page `Promise+setTimeout` pattern to wait for JS | React/Vue SPA sites where content is dynamically loaded |
+
+**Key technical note on Playwright**: Standard `asyncio.sleep()` and `page.wait_for_timeout()` cause the main thread to hang on some SPA sites (e.g., Wolai). The workaround is using `page.evaluate()` with an in-page `Promise` + `setTimeout` pattern, which runs inside the browser's event loop.
+
 ## Limitations
 
 - PDFs must have "Chapter N" entries in the table of contents (regex: `Chapter\s+(\d+)`).
+- Playwright engine requires Chromium system dependencies (`playwright install chromium`). On Arch Linux: `sudo pacman -S chromium`.
 - All prompts and the writing style guide are currently in Chinese. English support requires translating the prompts and style guide.
 - Default model tier: `sonnet`. Use `--model` CLI flag or `GRIMOIRE_MODEL` env var to switch (supports `haiku`/`sonnet`/`opus` aliases or direct model names).
 - Verbose mode requires re-running `parse` to embed TOC data in `chapters_raw.json` (old JSON files lack this).

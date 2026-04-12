@@ -43,6 +43,41 @@ python -m cli parse books/your-textbook.pdf --slug MYBOOK
 
 This creates `data/MYBOOK/chapters_raw.json`.
 
+### Phase 1b: Parse Web Sources / 解析 Web 来源
+
+Grimoire 支持多种 Web 数据源，通过插件式引擎架构自动选择或手动指定：
+
+```bash
+# Wolai 页面（自动检测域名，通过公开 API 秒级解析）
+python -m cli parse https://www.wolai.com/xxx --slug MYBOOK
+
+# 显式指定引擎
+python -m cli parse https://example.com --slug MYBOOK --engine static
+python -m cli parse https://spa.example.com --slug MYBOOK --engine playwright
+
+# 自定义引擎文件
+python -m cli parse https://custom.site --slug MYBOOK --engine ./my_engine.py
+```
+
+**内置引擎：**
+
+| 引擎 | `--engine` | 说明 |
+|------|-----------|------|
+| Wolai | `wolai` | 通过 Wolai 公开 API 直接获取章节内容（无需 Playwright），极快 |
+| Static | `static` | httpx + BeautifulSoup，适用于传统服务端渲染网站 |
+| Playwright | `playwright` | 浏览器渲染 SPA 页面，适用于 JS 动态渲染的网站 |
+
+**引擎选择逻辑：** `--engine name` 显式指定 > URL 域名自动匹配 > 默认回退到 `static`。
+
+Web 引擎相关的可选参数：
+
+| 参数 | 说明 |
+|------|------|
+| `--engine NAME` | 引擎名称或 .py 文件路径 |
+| `--selector SEL` | 正文 CSS 选择器 |
+| `--nav-selector SEL` | 导航链接 CSS 选择器 |
+| `--url-pattern REGEX` | 章节链接 URL 正则 |
+
 ### Phase 2: Generate Tutorials / 批量生成
 
 ```bash

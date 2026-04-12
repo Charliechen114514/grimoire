@@ -60,6 +60,18 @@ def run_chapter_pipeline(
     logger.info("=== Pipeline started [{}]: {} Ch.{} (input: {} chars) ===", mode_label, book_slug, chapter_idx, len(chapter_text))
     pipeline_start = time.time()
 
+    # Auto-upgrade: 当 section_splitter 检测到多个 section 时自动升级 verbose
+    pre_sections: list | None = None
+    if not verbose_mode:
+        from src.section_splitter import split_chapter_into_sections
+        pre_sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
+        if len(pre_sections) > 1:
+            verbose_mode = True
+            logger.info(
+                "Auto-upgraded to VERBOSE: chapter {} has {} sections from text headings",
+                chapter_idx, len(pre_sections),
+            )
+
     # Step 1: ConceptAgent
     step_start = time.time()
     concept_agent = ConceptAgent(model=model)
@@ -84,6 +96,7 @@ def run_chapter_pipeline(
             chapter_idx=chapter_idx,
             concepts=concepts_json,
             toc=toc,
+            pre_sections=pre_sections,
         )
         # 内部合并全文供 Exercise/TLDR 使用
         writing_result = _merge_verbose_sections(section_results)
@@ -206,6 +219,18 @@ async def async_run_chapter_pipeline(
     logger.info("=== Async pipeline started [{}]: {} Ch.{} (input: {} chars) ===", mode_label, book_slug, chapter_idx, len(chapter_text))
     pipeline_start = time.time()
 
+    # Auto-upgrade: 当 section_splitter 检测到多个 section 时自动升级 verbose
+    pre_sections: list | None = None
+    if not verbose_mode:
+        from src.section_splitter import split_chapter_into_sections
+        pre_sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
+        if len(pre_sections) > 1:
+            verbose_mode = True
+            logger.info(
+                "Auto-upgraded to VERBOSE: chapter {} has {} sections from text headings",
+                chapter_idx, len(pre_sections),
+            )
+
     # Step 1: ConceptAgent
     step_start = time.time()
     concept_agent = ConceptAgent(model=model)
@@ -234,6 +259,7 @@ async def async_run_chapter_pipeline(
                 chapter_idx=chapter_idx,
                 concepts=concepts_json,
                 toc=toc,
+                pre_sections=pre_sections,
             ),
             _async_run_with_retry(
                 lambda: exercise_agent.async_run(
@@ -313,6 +339,7 @@ async def _async_run_verbose_writing(
     chapter_idx: int,
     concepts: str,
     toc: list[tuple[int, str, int]] | None,
+    pre_sections: list | None = None,
 ) -> tuple[list[str], list]:
     """
     异步 Verbose 模式：逐节调用 WritingAgent（串行，previous_summary 依赖）。
@@ -320,9 +347,12 @@ async def _async_run_verbose_writing(
     Returns:
         (section_results, sections) 元组
     """
-    from src.section_splitter import Section, split_chapter_into_sections
+    from src.section_splitter import split_chapter_into_sections
 
-    sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
+    if pre_sections is not None:
+        sections = pre_sections
+    else:
+        sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
     logger.info(
         "Verbose mode: chapter {} split into {} sections",
         chapter_idx, len(sections),
@@ -360,6 +390,7 @@ def _run_verbose_writing(
     chapter_idx: int,
     concepts: str,
     toc: list[tuple[int, str, int]] | None,
+    pre_sections: list | None = None,
 ) -> tuple[list[str], list]:
     """
     Verbose 模式：自适应分节，逐节调用 WritingAgent 忠实改写。
@@ -369,9 +400,12 @@ def _run_verbose_writing(
         - section_results: 每节改写后的 Markdown 文本列表
         - sections: Section 对象列表（含标题等元数据）
     """
-    from src.section_splitter import Section, split_chapter_into_sections
+    from src.section_splitter import split_chapter_into_sections
 
-    sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
+    if pre_sections is not None:
+        sections = pre_sections
+    else:
+        sections = split_chapter_into_sections(chapter_text, chapter_idx, toc)
     logger.info(
         "Verbose mode: chapter {} split into {} sections",
         chapter_idx, len(sections),

@@ -46,6 +46,7 @@ GLOSSARY_MAX_TOKENS: int = 3000
 VERBOSE_MAX_TOKENS: int = 16384        # 每节输出上限
 VERBOSE_MIN_SECTION_CHARS: int = 3000  # 短于此时合并到下一节
 VERBOSE_TARGET_MAX_CHARS: int = 30000  # 超过此值时向下展开子标题
+DEFAULT_VERBOSE_MODE: bool = os.getenv("VERBOSE_MODE", "").lower() in ("1", "true", "yes")
 
 
 def book_data_dir(book_slug: str) -> Path:

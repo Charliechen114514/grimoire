@@ -23,6 +23,54 @@ T = TypeVar("T", bound=BaseModel)
 
 _BASE_DELAY = 2.0  # 指数退避基础延迟（秒）
 
+# 合法的 JSON 转义字符（出现在 \ 之后）
+_VALID_JSON_ESCAPES = frozenset('"\\' + '/bfnrtu')
+
+
+def _fix_json_escapes(text: str) -> str:
+    """修复 LLM 输出中的非法 JSON 转义序列（如 LaTeX \\mathbf、\\cdot）。
+
+    用状态机逐字符扫描：仅在 JSON 字符串值内部，当 \\ 后跟的字符不是合法转义时，
+    将其替换为 \\\\（即变成 JSON 中的字面反斜杠）。
+
+    已正确转义的序列（如 \\\\m）不受影响。
+    """
+    result: list[str] = []
+    i = 0
+    n = len(text)
+    in_string = False
+
+    while i < n:
+        ch = text[i]
+
+        if not in_string:
+            result.append(ch)
+            if ch == '"':
+                in_string = True
+            i += 1
+        else:
+            if ch == '"':
+                result.append(ch)
+                in_string = False
+                i += 1
+            elif ch == '\\' and i + 1 < n:
+                nxt = text[i + 1]
+                if nxt in _VALID_JSON_ESCAPES:
+                    # 合法转义，原样保留
+                    result.append(ch)
+                    result.append(nxt)
+                    i += 2
+                else:
+                    # 非法转义（如 \\m），将 \\ 替换为 \\\\
+                    result.append('\\\\')
+                    result.append(nxt)
+                    i += 2
+            else:
+                result.append(ch)
+                i += 1
+
+    return ''.join(result)
+
 # 全局 API 并发信号量，在首次使用时初始化
 _api_semaphore: asyncio.Semaphore | None = None
 
@@ -253,10 +301,18 @@ class BaseAgent(ABC):
             text = json_match.group(1).strip()
 
         try:
-            data = json.loads(text)
-        except json.JSONDecodeError as e:
-            logger.error("[{}] JSON parse failed: {} | Raw preview: {}", self.agent_name, e, text[:200])
-            raise ValueError(f"JSON parse failed: {e}\nRaw: {text[:500]}") from e
+            data = json.loads(text, strict=False)
+        except json.JSONDecodeError:
+            # 回退：修复非法转义（LaTeX \mathbf 等）后重试
+            fixed = _fix_json_escapes(text)
+            try:
+                data = json.loads(fixed, strict=False)
+            except json.JSONDecodeError as e:
+                logger.error(
+                    "[{}] JSON parse failed (even after escape fix): {} | Raw preview: {}",
+                    self.agent_name, e, text[:200],
+                )
+                raise ValueError(f"JSON parse failed: {e}\nRaw: {text[:500]}") from e
 
         try:
             result = model.model_validate(data)

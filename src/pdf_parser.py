@@ -1,154 +1,42 @@
-"""PDF 解析核心模块 — pymupdf 提取文本 + TOC 章节定位"""
-import json
-import os
-import re
-import tempfile
-from datetime import datetime, timezone
+"""向后兼容 shim — 重新导出 parsers.pdf_parser 中的公共 API。
+
+旧代码中 `from src.pdf_parser import split_book, save_chapters_raw` 仍然有效。
+新代码应使用 `from src.parsers import PDFParser, save_chapters_raw`。
+"""
+
+from src.parsers.pdf_parser import (
+    PDFParser,
+    _extract_chapter_toc,
+    _extract_chapters_from_pdf,
+    _extract_page_text,
+)
+from src.parsers import save_chapters_raw
+
 from pathlib import Path
-
-import pymupdf
-
-from src.config import book_data_dir
 from src.log import logger
 
 
-_SKIP_L1 = re.compile(
-    r"^(?:cover|title\s*page|copyright|dedication|about|"
-    r"contributor|table\s*of\s*contents|contents\s*at\s*a\s*glance|"
-    r"preface|foreword|acknowledgment|index|"
-    r"other\s*books?\s*you\s*may\s*enjoy|"
-    r"appendix)",
-    re.IGNORECASE,
-)
-
-
-def _extract_chapter_toc(toc: list[tuple[int, str, int]]) -> list[tuple[int, str, int]]:
-    """
-    从 TOC 中筛选出章级条目。
-
-    策略：
-    1. 优先匹配 "Chapter N" 格式的标题
-    2. 若无匹配，回退：将所有 L1 条目按顺序编号为章节，
-       跳过 Preface / Index / Cover 等非正文条目
-
-    Args:
-        toc: pymupdf 的 get_toc() 返回值 [(level, title, page), ...]
-
-    Returns:
-        [(chapter_num, title, start_page), ...] 按章节号排序
-    """
-    # ── 策略 1：匹配 "Chapter N" ──
-    pattern = re.compile(r"Chapter\s+(\d+)", re.IGNORECASE)
-    chapters = []
-    for _level, title, page in toc:
-        m = pattern.search(title)
-        if m:
-            chapters.append((int(m.group(1)), title, page))
-
-    if chapters:
-        chapters.sort(key=lambda x: x[0])
-        return chapters
-
-    # ── 策略 2：回退 — L1 条目顺序编号 ──
-    logger.info("No 'Chapter N' entries found, falling back to L1-based detection")
-    ch_num = 0
-    for level, title, page in toc:
-        if level != 1:
-            continue
-        if _SKIP_L1.search(title.strip()):
-            continue
-        # 跳过 TOC 本身的页码条目（通常在正文之前）
-        if page < 1:
-            continue
-        ch_num += 1
-        chapters.append((ch_num, title.strip(), page))
-
-    chapters.sort(key=lambda x: x[0])
-    return chapters
-
-
-def _extract_page_text(doc: pymupdf.Document, start_page: int, end_page: int) -> str:
-    """
-    从 PDF 中提取指定页范围的纯文本。
-
-    Args:
-        doc: 已打开的 pymupdf Document
-        start_page: 起始页码（1-indexed，TOC 的页码体系）
-        end_page: 结束页码（1-indexed，不含此页）
-    """
-    # pymupdf 页索引是 0-based
-    parts: list[str] = []
-    for page_idx in range(start_page - 1, min(end_page - 1, doc.page_count)):
-        page = doc[page_idx]
-        text = page.get_text()
-        if text.strip():
-            parts.append(text.strip())
-
-    return "\n\n".join(parts)
-
-
-def _extract_chapters_from_pdf(
+def split_book(
     pdf_path: Path,
+    book_slug: str,
 ) -> tuple[dict[int, str], list[tuple[int, str, int]]]:
     """
-    用 pymupdf TOC 定位章节边界，按页范围提取文本。
+    将整本 PDF 按章节切割为文本字典。
 
-    Args:
-        pdf_path: PDF 文件路径
-
-    Returns:
-        (chapters, toc) 元组：
-        - chapters: {chapter_num: chapter_text} 字典
-        - toc: pymupdf 原始 TOC [(level, title, page), ...]
+    保留旧签名以保证向后兼容。
+    新代码建议使用 PDFParser.parse() 返回 ChaptersRaw。
     """
-    doc = pymupdf.open(str(pdf_path))
-    try:
-        toc = doc.get_toc()
-        chapter_entries = _extract_chapter_toc(toc)
+    if not pdf_path.exists():
+        raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
-        if not chapter_entries:
-            logger.warning("No chapter entries found in TOC for {}", pdf_path)
-            return {}, toc
-
-        chapters: dict[int, str] = {}
-        for i, (ch_num, title, start_page) in enumerate(chapter_entries):
-            # 下一章的起始页作为本章的结束页
-            if i + 1 < len(chapter_entries):
-                end_page = chapter_entries[i + 1][2]
-            else:
-                end_page = doc.page_count + 1
-
-            text = _extract_page_text(doc, start_page, end_page)
-            chapters[ch_num] = text
-            logger.debug(
-                "Chapter {} '{}': pages {}-{}, {} chars",
-                ch_num, title, start_page, end_page - 1, len(text),
-            )
-
-        logger.info(
-            "Extracted {} chapters from {}: {}",
-            len(chapters), pdf_path.name, sorted(chapters.keys()),
-        )
-        return chapters, toc
-    finally:
-        doc.close()
+    logger.info("Splitting book '{}': {}", book_slug, pdf_path)
+    chapters, toc = _extract_chapters_from_pdf(pdf_path)
+    logger.info("Book '{}': {} chapters extracted", book_slug, len(chapters))
+    return chapters, toc
 
 
 def parse_chapter(pdf_path: Path, chapter_n: int) -> str:
-    """
-    从 PDF 中提取第 N 章的干净文本。
-
-    Args:
-        pdf_path: PDF 文件路径
-        chapter_n: 章节编号（1-indexed）
-
-    Returns:
-        该章节的文本
-
-    Raises:
-        ValueError: chapter_n 不存在
-        FileNotFoundError: pdf_path 不存在
-    """
+    """从 PDF 中提取第 N 章的干净文本。"""
     if not pdf_path.exists():
         raise FileNotFoundError(f"PDF not found: {pdf_path}")
 
@@ -162,77 +50,9 @@ def parse_chapter(pdf_path: Path, chapter_n: int) -> str:
     return chapters[chapter_n]
 
 
-def split_book(
-    pdf_path: Path,
-    book_slug: str,
-) -> tuple[dict[int, str], list[tuple[int, str, int]]]:
-    """
-    将整本 PDF 按章节切割为文本字典。
-
-    Args:
-        pdf_path: PDF 文件路径
-        book_slug: 书籍短名，用于日志标识
-
-    Returns:
-        (chapters, toc) 元组：
-        - chapters: {chapter_idx: chapter_text} 字典，chapter_idx 从 1 开始
-        - toc: pymupdf 原始 TOC [(level, title, page), ...]
-    """
-    if not pdf_path.exists():
-        raise FileNotFoundError(f"PDF not found: {pdf_path}")
-
-    logger.info("Splitting book '{}': {}", book_slug, pdf_path)
-    chapters, toc = _extract_chapters_from_pdf(pdf_path)
-    logger.info("Book '{}': {} chapters extracted", book_slug, len(chapters))
-    return chapters, toc
-
-
-def save_chapters_raw(
-    chapters: dict[int, str],
-    book_slug: str,
-    pdf_path: Path,
-    toc: list[tuple[int, str, int]] | None = None,
-) -> Path:
-    """
-    将章节字典持久化为 data/{slug}/chapters_raw.json（原子写入）。
-
-    Args:
-        chapters: {chapter_idx: chapter_text} 字典
-        book_slug: 书籍短名
-        pdf_path: 原始 PDF 路径（记入 metadata）
-        toc: pymupdf 原始 TOC，存入 metadata 供 verbose mode 使用
-
-    Returns:
-        写入的文件路径
-    """
-    data_dir = book_data_dir(book_slug)
-    output_path = data_dir / "chapters_raw.json"
-
-    payload: dict = {}
-    for idx in sorted(chapters.keys()):
-        payload[str(idx)] = chapters[idx]
-    payload["metadata"] = {
-        "source_pdf": pdf_path.name,
-        "book_slug": book_slug,
-        "total_chapters": len(chapters),
-        "parse_timestamp": datetime.now(timezone.utc).isoformat(),
-    }
-    if toc:
-        payload["metadata"]["toc"] = [
-            {"level": lvl, "title": title, "page": page}
-            for lvl, title, page in toc
-        ]
-
-    data_dir.mkdir(parents=True, exist_ok=True)
-    fd, tmp_path = tempfile.mkstemp(suffix=".json", dir=str(data_dir))
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-        os.replace(tmp_path, output_path)
-    except BaseException:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-        raise
-
-    logger.info("Saved chapters_raw.json: {} chapters -> {}", len(chapters), output_path)
-    return output_path
+__all__ = [
+    "split_book",
+    "parse_chapter",
+    "save_chapters_raw",
+    "PDFParser",
+]

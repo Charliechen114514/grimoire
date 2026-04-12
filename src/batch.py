@@ -11,30 +11,8 @@ from src.config import book_data_dir
 from src.glossary import load_glossary, merge_concepts, save_glossary, trim_to_budget
 from src.log import logger
 from src.orchestrator import async_run_chapter_pipeline
+from src.parsers import load_chapters_raw
 from src.progress import init_progress, init_progress_fresh, mark_done, save_progress
-
-
-def load_chapters_raw(book_slug: str) -> dict[str, Any]:
-    """
-    Load chapters_raw.json for the given book.
-
-    Returns:
-        The raw JSON dict (chapter keys are "1", "2", ..., plus "metadata")
-
-    Raises:
-        FileNotFoundError: if chapters_raw.json does not exist
-    """
-    path = book_data_dir(book_slug) / "chapters_raw.json"
-    if not path.exists():
-        raise FileNotFoundError(
-            f"chapters_raw.json not found at {path}. "
-            f"Run Phase 1 (pdf_parser.split_book) first."
-        )
-    data = json.loads(path.read_text(encoding="utf-8"))
-    logger.info(
-        "Loaded {}: {} chapters", path, data["metadata"]["total_chapters"],
-    )
-    return data
 
 
 async def async_run_batch(
@@ -60,29 +38,28 @@ async def async_run_batch(
         本次运行中处理的章节输出文件路径列表
     """
     raw = load_chapters_raw(book_slug)
-    total_chapters = raw["metadata"]["total_chapters"]
+    metadata = raw.metadata
+    total_chapters = metadata.total_chapters
     batch_start = time.time()
     logger.info(
-        "Batch starting: book={}, chapters={}, workers={}, verbose={}, resume={}, model={}",
-        book_slug, total_chapters, max_workers, verbose_mode, resume, model,
+        "Batch starting: book={}, chapters={}, workers={}, verbose={}, resume={}, model={}, source={}",
+        book_slug, total_chapters, max_workers, verbose_mode, resume, model, metadata.source_type,
     )
 
-    # 从 metadata 中加载 TOC（verbose 模式需要）
-    toc_raw = raw["metadata"].get("toc")
+    # 从 metadata 中加载 TOC（verbose 模式和 auto-upgrade 都需要）
     toc = None
-    if toc_raw and verbose_mode:
-        toc = [(e["level"], e["title"], e["page"]) for e in toc_raw]
-        logger.info("Loaded TOC: {} entries for verbose mode", len(toc))
-    elif verbose_mode and not toc_raw:
+    if metadata.toc:
+        toc = [(e.level, e.title, 0) for e in metadata.toc]
+        logger.info("Loaded TOC: {} entries", len(toc))
+    elif verbose_mode:
         logger.warning(
             "Verbose mode requested but no TOC in chapters_raw.json. "
-            "Re-run 'parse' command to generate TOC data. "
             "Falling back to single-section mode.",
         )
 
     # Get sorted chapter keys (only numeric ones)
     chapter_keys = sorted(
-        [k for k in raw.keys() if k.isdigit()],
+        [k for k in raw.chapters.keys() if k.isdigit()],
         key=lambda k: int(k),
     )
 
@@ -123,7 +100,7 @@ async def async_run_batch(
 
             try:
                 result = await async_run_chapter_pipeline(
-                    chapter_text=raw[chapter_key],
+                    chapter_text=raw.chapters[chapter_key],
                     chapter_idx=chapter_idx,
                     book_slug=book_slug,
                     glossary=trimmed,

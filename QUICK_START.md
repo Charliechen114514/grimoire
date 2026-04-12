@@ -40,7 +40,15 @@ ANTHROPIC_API_KEY=你的API密钥
 ### 4. 解析
 
 ```bash
+# PDF 教材
 python -m cli parse books/your-book.pdf --slug MYBOOK
+
+# Wolai 页面（自动检测引擎，秒级解析）
+python -m cli parse https://www.wolai.com/xxx --slug MYBOOK
+
+# 指定 Web 引擎
+python -m cli parse https://example.com/tutorial --slug MYBOOK --engine static
+python -m cli parse https://spa.example.com --slug MYBOOK --engine playwright
 ```
 
 ### 5. 批量生成教程
@@ -123,6 +131,7 @@ python -m cli batch MYBOOK --model glm-5.1  # 直接指定模型名
 | Agent 提示词 | `prompts/system/*.md`、`prompts/user/*.md` |
 | 模型配置 | `--model` 参数、`GRIMOIRE_MODEL` 环境变量 |
 | 并发章节数 | `--workers N` 或 `MAX_CONCURRENT_CHAPTERS` 环境变量 |
+| Web 解析引擎 | `--engine name` 或自定义 `src/parsers/engines/` |
 
 ### 一条龙
 
@@ -170,7 +179,15 @@ Place your PDF textbook in `books/`. The PDF must have a TOC with "Chapter N" en
 ### 4. Parse
 
 ```bash
+# PDF textbook
 python -m cli parse books/your-book.pdf --slug MYBOOK
+
+# Wolai page (auto-detected engine, instant parsing)
+python -m cli parse https://www.wolai.com/xxx --slug MYBOOK
+
+# Specify web engine
+python -m cli parse https://example.com/tutorial --slug MYBOOK --engine static
+python -m cli parse https://spa.example.com --slug MYBOOK --engine playwright
 ```
 
 ### 5. Batch Generate Tutorials
