@@ -17,7 +17,8 @@ git clone https://github.com/charliechen114514/grimoire.git
 cd grimoire
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e .            # 默认：解析 + LLM 生成（不含 OCR）
+# pip install -e ".[all]"   # 全部依赖（含 OCR、站点打包、开发）
 ```
 
 ### 2. 配置 API 密钥
@@ -146,7 +147,8 @@ git clone https://github.com/charliechen114514/grimoire.git
 cd grimoire
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e .            # Default: parse + LLM generation (no OCR)
+# pip install -e ".[all]"   # All dependencies (OCR, site packaging, dev)
 ```
 
 ### 2. Configure API Key

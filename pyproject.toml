@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=75.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ── Project metadata ──────────────────────────────────────────────
+[project]
+name = "tutorial-summon"
+version = "0.1.0"
+description = "PDF textbook to interactive tutorial pipeline, powered by AI"
+requires-python = ">=3.12"
+readme = "README.md"
+license = "MIT"
+
+# base + 默认依赖：解析 PDF + LLM 生成，无需 OCR
+dependencies = [
+    "pydantic>=2.0.0",
+    "loguru>=0.7.0",
+    "python-dotenv>=1.0.0",
+    "pymupdf>=1.24.0",
+    "anthropic>=0.40.0",
+]
+
+# ── Optional dependency groups ────────────────────────────────────
+# pip install ".[ocr]"   → OCR 增强 PDF 解析
+# pip install ".[site]"  → MkDocs 站点打包
+# pip install ".[dev]"   → 开发 & 测试
+# pip install ".[all]"   → 全部装齐
+[project.optional-dependencies]
+ocr   = ["marker-pdf>=1.10.0"]
+site  = ["mkdocs>=1.6.0", "mkdocs-material>=9.5.0"]
+dev   = ["pytest>=8.0.0"]
+all   = ["tutorial-summon[ocr,site,dev]"]
+
+# ── CLI entry point ───────────────────────────────────────────────
+# 安装后可直接 summon <command>，无需 python -m cli
+[project.scripts]
+summon = "cli:main"
+
+# ── Package discovery ─────────────────────────────────────────────
+[tool.setuptools]
+py-modules = ["cli"]
+
+[tool.setuptools.packages.find]
+include = ["src*"]

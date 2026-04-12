@@ -7,7 +7,8 @@ git clone https://github.com/charliechen114514/grimoire.git
 cd grimoire
 python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -e .            # Default: parse + LLM generation (no OCR)
+# pip install -e ".[all]"   # All dependencies (OCR, site packaging, dev)
 ```
 
 ### API Key Configuration / API 密钥配置
@@ -129,9 +130,14 @@ Add `-v` to any command for debug logging.
 
 ## Requirements
 
-- Python 3.12（PS: 3.14 Might Sucks In Pillow Compile）
-- `anthropic >= 0.40.0`
-- `pymupdf >= 1.24.0`
-- `pydantic >= 2.0.0`
-- `mkdocs >= 1.6.0` + `mkdocs-material >= 9.5.0`
-- `python-dotenv >= 1.0.0`
+- Python >= 3.12
+
+依赖通过 `pyproject.toml` 管理，按需安装：
+
+```bash
+pip install -e .            # 默认（解析 + LLM 生成）
+pip install -e ".[ocr]"     # + OCR 增强 PDF 解析
+pip install -e ".[site]"    # + MkDocs 站点打包
+pip install -e ".[dev]"     # + 开发测试
+pip install -e ".[all]"     # 全部
+```
