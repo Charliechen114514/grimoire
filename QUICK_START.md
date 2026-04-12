@@ -23,13 +23,23 @@ pip install -e .            # 默认：解析 + LLM 生成（不含 OCR）
 
 ### 2. 配置 API 密钥
 
-在项目根目录创建 `.env` 文件：
+复制项目提供的模板并填写：
 
 ```bash
-ANTHROPIC_API_KEY=你的API密钥
-# ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic   # 可选：代理地址
-# GRIMOIRE_MODEL=sonnet   # 可选：默认模型 tier (haiku/sonnet/opus)
+cp .env.template .env
 ```
+
+然后编辑 `.env`，填入你的 API 密钥（必填）和其他可选项：
+
+```bash
+ANTHROPIC_API_KEY=你的API密钥          # 必填
+# ANTHROPIC_BASE_URL=https://...       # 可选：代理地址
+# GRIMOIRE_MODEL=sonnet                # 可选：默认模型 tier (haiku/sonnet/opus)
+# VERBOSE_MODE=true                    # 可选：详细模式
+# MAX_CONCURRENT_CHAPTERS=4            # 可选：并发章节数
+```
+
+模板内含每个参数的详细注释，可按需开启。
 
 默认使用 `sonnet` tier。可通过 `--model` CLI 参数或 `GRIMOIRE_MODEL` 环境变量切换，详见下方「模型选择」。
 
@@ -145,14 +155,14 @@ ls config/writing_style*.template*
 
 # 选择一个模板覆盖默认配置（二选一）
 cp config/writing_style1.template.md config/writing_style.md   # 模板 1
-cp config/writing_style2.template config/writing_style.md       # 模板 2
+cp config/writing_style2.template.md config/writing_style.md       # 模板 2
 
 # 然后按需编辑
 vim config/writing_style.md
 ```
 
 - **模板 1**（`writing_style1.template.md`）：SICP 教材叙事风（与当前默认一致）
-- **模板 2**（`writing_style2.template`）：工程师博客实战风
+- **模板 2**（`writing_style2.template.md`）：工程师博客实战风
 
 > 也可以直接编辑 `config/writing_style.md`，不依赖模板。文件为纯 Markdown，内容越详细，生成的教程风格越一致。
 
@@ -198,13 +208,23 @@ pip install -e .            # Default: parse + LLM generation (no OCR)
 
 ### 2. Configure API Key
 
-Create a `.env` file in the project root:
+Copy the provided template and fill in your credentials:
 
 ```bash
-ANTHROPIC_API_KEY=your-api-key-here
-# ANTHROPIC_BASE_URL=https://open.bigmodel.cn/api/anthropic   # Optional: proxy URL
-# GRIMOIRE_MODEL=sonnet   # Optional: default model tier (haiku/sonnet/opus)
+cp .env.template .env
 ```
+
+Edit `.env` — set your API key (required) and any optional settings:
+
+```bash
+ANTHROPIC_API_KEY=your-api-key-here    # Required
+# ANTHROPIC_BASE_URL=https://...       # Optional: proxy URL
+# GRIMOIRE_MODEL=sonnet                # Optional: default model tier (haiku/sonnet/opus)
+# VERBOSE_MODE=true                    # Optional: verbose mode
+# MAX_CONCURRENT_CHAPTERS=4            # Optional: max parallel chapters
+```
+
+The template includes detailed comments for each parameter.
 
 Default model tier is `sonnet`. Switch via `--model` CLI flag or `GRIMOIRE_MODEL` env var — see "Model Selection" below.
 
@@ -320,14 +340,14 @@ ls config/writing_style*.template*
 
 # Pick one and overwrite the default
 cp config/writing_style1.template.md config/writing_style.md   # Template 1
-cp config/writing_style2.template config/writing_style.md       # Template 2
+cp config/writing_style2.template.md config/writing_style.md       # Template 2
 
 # Edit to your liking
 vim config/writing_style.md
 ```
 
 - **Template 1** (`writing_style1.template.md`): SICP textbook narrative style (same as current default)
-- **Template 2** (`writing_style2.template`): Engineer blog / hands-on style
+- **Template 2** (`writing_style2.template.md`): Engineer blog / hands-on style
 
 > You can also edit `config/writing_style.md` directly without a template. The file is plain Markdown — the more detailed it is, the more consistent the generated tutorials will be.
 
