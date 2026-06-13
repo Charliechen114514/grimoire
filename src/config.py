@@ -22,6 +22,15 @@ MAX_TOKENS: int = 8192
 MAX_RETRIES: int = 3
 MAX_CONCURRENT_CHAPTERS: int = int(os.getenv("MAX_CONCURRENT_CHAPTERS", "4"))
 
+# ── 视觉 OCR（扫描书专用）──
+# ⚠️ 智谱 Anthropic 兼容端点 (/api/anthropic) 会静默丢弃图像，视觉必须走 OpenAI 兼容端点。
+#    详见 memory/zhipu-vision-endpoint-gotcha.md
+ZHIPU_VISION_URL: str = os.getenv(
+    "ZHIPU_VISION_URL",
+    "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+)
+VISION_MODEL: str = os.getenv("VISION_MODEL", "glm-4.5v")
+
 # ── Model aliases ──
 MODEL_ALIASES: dict[str, str] = {
     "haiku":  os.getenv("ANTHROPIC_DEFAULT_HAIKU_MODEL",  "claude-haiku-4-5-20251001"),

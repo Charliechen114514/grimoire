@@ -43,6 +43,7 @@ def get_parser(
     engine: str | None = None,
     *,
     extract_images: bool = True,
+    ocr: str | None = None,
     **kwargs,
 ) -> BaseParser:
     """
@@ -53,13 +54,23 @@ def get_parser(
         source_type: 显式指定类型 ("pdf" | "web")，不指定则自动检测
         engine: Web 引擎名称（如 "wolai"、"static"、"playwright"）或 .py 文件路径
         extract_images: PDF 解析时是否提取图片（默认 True）
-        **kwargs: 传递给引擎的额外参数
+        ocr: PDF OCR 模式。None=用文字层（生数字版）；"vision"=扫描书逐页视觉转写
+        **kwargs: 传递给引擎/解析器的额外参数（vision 模式：vision_model/max_pages/concurrency）
 
     Returns:
         对应的 BaseParser 实例
     """
-    # PDF 始终走 PDFParser
-    if source_type == "pdf" or (not source_type and _is_pdf(source)):
+    is_pdf = source_type == "pdf" or (not source_type and _is_pdf(source))
+    if is_pdf:
+        if ocr == "vision":
+            # 扫描书：视觉逐页转写（httpx 直连智谱 OpenAI 兼容端点，非 MCP）
+            from .vision_pdf_parser import VisionPDFParser
+
+            return VisionPDFParser(
+                model=kwargs.get("vision_model"),
+                max_pages=kwargs.get("max_pages"),
+                concurrency=kwargs.get("concurrency", 4),
+            )
         return PDFParser(extract_images=extract_images)
 
     # Web 类型

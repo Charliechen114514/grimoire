@@ -46,6 +46,10 @@ def _cn_to_int(s: str) -> int | None:
 _CHAPTER_PATTERNS = [
     re.compile(r"Chapter\s+(\d+)", re.IGNORECASE),
     re.compile(r"第([一二三四五六七八九十百零\d]+)\s*章"),
+    # 裸数字章节标题，如 "2 Principles of Steady-State..." / "1 Introduction"
+    # （出版商生数字版常见格式，章号嵌在 L2/Part 下）
+    # 不匹配 "2.1" 小节（数字后是点非空格）、不匹配 "Part I"（非数字开头）
+    re.compile(r"^\s*(\d+)\s+\S"),
 ]
 
 
@@ -163,31 +167,36 @@ def _collect_toc_subtree(
     chapter_idx: int,
 ) -> list[tuple[int, str, int]]:
     """
-    从 TOC 中提取指定章节的完整子树（L1 之后、下一个 L1 之前的所有条目）。
+    从 TOC 中提取指定章节的完整子树，并按相对深度归一化层级。
 
-    支持英文 "Chapter N" 和中文 "第N章" 两种标题格式。
+    章节可出现在任意 TOC 层级：L1（"Chapter N" / "第N章"）或嵌套在 Part 下的
+    L2（"N Title"，生数字版教材常见）。返回的子树做相对归一化：章节的直接子节 → 2、
+    孙节 → 3，这样下游按 "L2 切分 / L3 展开" 的固定约定即可同时正确处理两种结构。
 
     Returns:
-        [(level, title, page), ...] 列表
+        [(level, title, page), ...] 归一化层级后的子树
     """
+    # 在任意层级查找章节条目（不再限定 L1）
     ch_start_idx = None
+    ch_level = None
     for i, (level, title, _page) in enumerate(toc):
-        if level == 1:
-            ch_num = _parse_chapter_number(title)
-            if ch_num is not None and ch_num == chapter_idx:
-                ch_start_idx = i
-                break
+        ch_num = _parse_chapter_number(title)
+        if ch_num is not None and ch_num == chapter_idx:
+            ch_start_idx = i
+            ch_level = level
+            break
 
     if ch_start_idx is None:
         logger.warning("Chapter {} not found in TOC", chapter_idx)
         return []
 
+    # 收集比章节更深的条目，遇到同级或更浅即止；层级相对归一化（章子节→2）
     subtree: list[tuple[int, str, int]] = []
     for i in range(ch_start_idx + 1, len(toc)):
         level, title, page = toc[i]
-        if level == 1:
+        if level <= ch_level:
             break
-        subtree.append((level, title, page))
+        subtree.append((level - ch_level + 1, title, page))
 
     return subtree
 

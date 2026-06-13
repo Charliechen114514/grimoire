@@ -51,6 +51,9 @@ def _cmd_parse(args: argparse.Namespace) -> None:
             source_type=getattr(args, "source_type", None),
             engine=getattr(args, "engine", None),
             extract_images=not getattr(args, "no_images", False),
+            ocr=getattr(args, "ocr", None),
+            vision_model=getattr(args, "vision_model", None),
+            max_pages=getattr(args, "max_pages", None),
             **kwargs,
         )
         result = parser.parse(source, slug)
@@ -262,6 +265,18 @@ def main() -> None:
     p_parse.add_argument(
         "--no-images", action="store_true",
         help="Skip image extraction from PDF (text only)",
+    )
+    p_parse.add_argument(
+        "--ocr", default=None, choices=["vision"],
+        help="PDF OCR 模式：vision=扫描书逐页视觉转写（httpx 直连智谱，非 MCP）",
+    )
+    p_parse.add_argument(
+        "--vision-model", default=None,
+        help="视觉模型名（默认 glm-4.5v；glm-4v-plus 更快更便宜）",
+    )
+    p_parse.add_argument(
+        "--max-pages", type=int, default=None,
+        help="测试用：最多处理这么多页（跨章节累计）",
     )
 
     # ── batch ──
